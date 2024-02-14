@@ -372,10 +372,10 @@ class MyHttpHandler(http.server.BaseHTTPRequestHandler):
 @click.option('--white-list', '-wl', help='IP White list for incoming connections (comma separated)')
 @click.option('--run-mock-tls-server', is_flag=True, help='Run mock TLS server')
 @click.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
-@click.option('--verbose', '-v', is_flag=True, help='Verbose mode')
+@click.option('-v', '--verbose', count=True)
 def _cli(verbose, **kwargs):
     if verbose:
-        _setup_logging(logging.INFO)
+        _setup_logging(logging.INFO if verbose == 1 else logging.DEBUG)
         logger.setLevel(logging.DEBUG)
         logging.getLogger('simple_proxy.utils').setLevel(logging.DEBUG)
     run_proxy(**kwargs)
