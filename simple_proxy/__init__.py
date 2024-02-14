@@ -1,4 +1,5 @@
 import socket
+import platform
 import random
 import http.server
 import ssl
@@ -118,21 +119,25 @@ def _format_bytes(size, scale=1):
 
 @define(slots=True, kw_only=True, order=True)
 class _Client():
-    last_read_time: float = field(factory=time.time)
+
+    global_rx = 0
+    global_tx = 0
+
+    last_read_time: float = field(factory=time.perf_counter)
     total_read_bytes: int = field(default=0)
     cumulative_read_bytes: int = field(default=0)  # bytes
     cumulative_read_time: float = field(default=0.0)  # seconds
     rbps: float = field(default=0.0)
-    born_time: float = field(factory=time.time)
+    born_time: float = field(factory=time.perf_counter)
 
-    last_write_time: float = field(factory=time.time)
+    last_write_time: float = field(factory=time.perf_counter)
     total_write_bytes: int = field(default=0)
     cumulative_write_bytes: int = field(default=0)  # bytes
     cumulative_write_time: float = field(default=0.0)  # seconds
     wbps: float = field(default=0.0)
 
     def pretty_born_time(self):
-        return _pretty_duration(time.time() - self.born_time)
+        return _pretty_duration(time.perf_counter() - self.born_time)
 
     def pretty_speed(self):
         v, unit = _format_bytes(self.rbps)
@@ -157,7 +162,8 @@ class _Client():
             return f"{v} B"
 
     def read(self, size):
-        current_time = time.time()
+        self.__class__.global_rx += size
+        current_time = time.perf_counter()
         self.cumulative_read_time += (current_time - self.last_read_time)
         self.last_read_time = current_time
         self.total_read_bytes += size
@@ -168,7 +174,8 @@ class _Client():
             self.cumulative_read_bytes = 0
 
     def write(self, size):
-        current_time = time.time()
+        self.__class__.global_tx += size
+        current_time = time.perf_counter()
         self.cumulative_write_time += (current_time - self.last_write_time)
         self.last_write_time = current_time
         self.total_write_bytes += size
@@ -179,7 +186,7 @@ class _Client():
             self.cumulative_write_bytes = 0
 
     def check(self):
-        if time.time() - self.last_read_time > 2:
+        if time.perf_counter() - self.last_read_time > 2:
             self.rbps = 0
             self.cumulative_read_time = 0
             self.cumulative_read_bytes = 0
@@ -318,7 +325,11 @@ def _clients_check(interval):
         if total:
             average_speed = round(sum([c.rbps for c in clients_snapshot.values()]) / total, 2)
             average_wspeed = round(sum([c.wbps for c in clients_snapshot.values()]) / total, 2)
-            pstderr(f"{'Average Read Speed:':<20} {average_speed} bytes/s, {'Average Write Speed:':<20} {average_wspeed} bytes/s")
+            ever_rx, unit_r = _format_bytes(_Client.global_rx)
+            ever_tx, unit_t = _format_bytes(_Client.global_tx)
+            r = f"{ever_rx}{unit_r or 'B'}"
+            t = f"{ever_tx}{unit_t or 'B'}"
+            pstderr(f"{'Average Rx:':<15} {average_speed} bytes/s, {'Average Tx:':<15} {average_wspeed} bytes/s, Ever Rx: {r}, Ever Tx: {t}")
 
         time.sleep(interval)
 
@@ -363,6 +374,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
                 tls=self._tls,
                 verify=False
             ).connect(ip, port, True).sync().channel()
+            set_keepalive(self._client.socket())
         return self._client
 
     def exception_caught(self, ctx, exception):
@@ -371,6 +383,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
 
     def channel_active(self, ctx):
         super().channel_active(ctx)
+        set_keepalive(ctx.channel().socket())
         self.raddr = ctx.channel().socket().getpeername()
         pstderr(f"Connection opened: {self.raddr}")
         _clients[self.raddr]
@@ -610,6 +623,44 @@ def _free_port():
     return port
 
 
+def set_keepalive_linux(sock, after_idle_sec, interval_sec, max_fails):
+    """Set TCP keepalive on an open socket.
+
+    It activates after 1 second (after_idle_sec) of idleness,
+    then sends a keepalive ping once every 3 seconds (interval_sec),
+    and closes the connection after 5 failed ping (max_fails), or 15 seconds
+    """
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, after_idle_sec)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, interval_sec)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, max_fails)
+
+
+def set_keepalive_osx(sock, after_idle_sec, interval_sec, max_fails):
+    """Set TCP keepalive on an open socket.
+
+    sends a keepalive ping once every 3 seconds (interval_sec)
+    """
+    # scraped from /usr/include, not exported by python's socket module
+    TCP_KEEPALIVE = 0x10
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPALIVE, interval_sec)
+
+
+def set_keepalive_win(sock, after_idle_sec, interval_sec, max_fails):
+    sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, after_idle_sec * 1000, interval_sec * 1000))
+
+
+def set_keepalive(sock, after_idle_sec=60, interval_sec=60, max_fails=5):
+    plat = platform.system()
+    if plat == 'Linux':
+        set_keepalive_linux(sock, after_idle_sec, interval_sec, max_fails)
+    if plat == 'Darwin':
+        set_keepalive_osx(sock, after_idle_sec, interval_sec, max_fails)
+    if plat == 'Windows':
+        set_keepalive_win(sock, after_idle_sec, interval_sec, max_fails)
+
+
 def _run():
     global _stderr
     _stderr = True
@@ -623,17 +674,47 @@ def _test_pattern_to_regex():
     assert _pattern_to_regex('example.com.*') == r'example\.com\..*'
 
 
+def _test_Client():
+    c1 = _Client()
+    c2 = _Client()
+    c1.read(100)
+    c1.write(101)
+    assert _Client.global_rx == 100
+    assert _Client.global_tx == 101
+    c2.read(200)
+    c2.write(201)
+    assert _Client.global_rx == 300
+    assert _Client.global_tx == 302
+
+
+def _test_format_bytes():
+    v, u = _format_bytes(1)
+    assert v == 1
+    assert u == ''
+    v, u = _format_bytes(1025)
+    assert v == 1, v
+    assert u == 'K', u
+    v, u = _format_bytes(1025 * 1024)
+    assert v == 1, v
+    assert u == 'M', u
+    v, u = _format_bytes(60 * 1024 * 1024)
+    assert v == 60, v
+    assert u == 'M', u
+
+
 if __name__ == '__main__':
     _test_pattern_to_regex()
+    _test_Client()
+    _test_format_bytes()
     _stderr = True
-    run_proxy(
-        local_server='localhost', local_port=8080,
-        remote_server='www.google.com', remote_port=80,
-        tls=False, ss=False,
-        content=False, to_file=False,
-        key_file='', cert_file='',
-        speed_monitor=False, speed_monitor_interval=5,
-        disguise_tls_ip='', disguise_tls_port=0,
-        white_list=None,
-        using_global=False,
-    )
+    # run_proxy(
+    #     local_server='localhost', local_port=8080,
+    #     remote_server='www.google.com', remote_port=80,
+    #     tls=False, ss=False,
+    #     content=False, to_file=False,
+    #     key_file='', cert_file='',
+    #     speed_monitor=False, speed_monitor_interval=5,
+    #     disguise_tls_ip='', disguise_tls_port=0,
+    #     white_list=None,
+    #     using_global=False,
+    # )
