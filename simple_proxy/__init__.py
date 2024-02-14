@@ -136,6 +136,9 @@ class _Client():
     cumulative_write_time: float = field(default=0.0)  # seconds
     wbps: float = field(default=0.0)
 
+    local_socket: socket.socket = field(default=None)
+    proxy_socket: socket.socket = field(default=None)
+
     def pretty_born_time(self):
         return _pretty_duration(time.perf_counter() - self.born_time)
 
@@ -313,14 +316,17 @@ def _clients_check(interval):
         count = 1
         for address, client in items:
             client.check()
-            ip, port = address
-            ipport = f"{ip}:{port}"
+            # ip, port = address
             pspeed = client.pretty_speed()
             ptotal = client.pretty_total()
             pwspeed = client.pretty_wspeed()
             pwtotal = client.pretty_wtotal()
             duration = client.pretty_born_time().lower()
-            pstderr(f"[{count:3}] | {ipport:21} | Speed Rx:{pspeed:10} Tx:{pwspeed:10} | Total Rx:{ptotal:10} Tx:{pwtotal:10} | duration: {duration}")
+            local_socket = client.local_socket
+            proxy_socket = client.proxy_socket
+            from_ = _getpeername(local_socket)
+            proxy = _getsockname(proxy_socket)
+            pstderr(f"[{count:3}] | {from_:21} | {proxy:21} | rx:{pspeed:10} tx:{pwspeed:10} | cum(rx):{ptotal:10} cum(tx):{pwtotal:10} | {duration}")
             count += 1
         if total:
             average_speed = round(sum([c.rbps for c in clients_snapshot.values()]) / total, 2)
@@ -329,9 +335,26 @@ def _clients_check(interval):
             ever_tx, unit_t = _format_bytes(_Client.global_tx)
             r = f"{ever_rx}{unit_r or 'B'}"
             t = f"{ever_tx}{unit_t or 'B'}"
-            pstderr(f"{'Average Rx:':<15} {average_speed} bytes/s, {'Average Tx:':<15} {average_wspeed} bytes/s, Ever Rx: {r}, Ever Tx: {t}")
-
+            pstderr(f"Average Rx: {average_speed} bytes/s, Average Tx: {average_wspeed} bytes/s, Total Rx: {r}, Total Tx: {t}")
         time.sleep(interval)
+
+
+def _getpeername(sock: socket.socket) -> str:
+    if not sock:
+        return '?'
+    try:
+        return ':'.join(map(str, sock.getpeername()))
+    except OSError:
+        return '?'
+
+
+def _getsockname(sock: socket.socket) -> str:
+    if not sock:
+        return '?'
+    try:
+        return ':'.join(map(str, sock.getsockname()))
+    except OSError:
+        return '?'
 
 
 class ProxyChannelHandler(LoggingChannelHandler):
@@ -383,10 +406,11 @@ class ProxyChannelHandler(LoggingChannelHandler):
 
     def channel_active(self, ctx):
         super().channel_active(ctx)
-        set_keepalive(ctx.channel().socket())
-        self.raddr = ctx.channel().socket().getpeername()
-        pstderr(f"Connection opened: {self.raddr}")
-        _clients[self.raddr]
+        local_socket = ctx.channel().socket()
+        set_keepalive(local_socket)
+        self.raddr = local_socket.getpeername()
+        _clients[self.raddr].local_socket = local_socket
+        pstderr(f"Connection opened: {socket_description(local_socket)}")
 
     def channel_read(self, ctx, bytebuf):
         super().channel_read(ctx, bytebuf)
@@ -396,6 +420,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
                 self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
             else:
                 self._client_channel(ctx, self._remote_host, self._remote_port)
+            _clients[self.raddr].proxy_socket = self._client.socket()
 
         _handle(bytebuf, True, ctx.channel().socket(), self._client.socket(), self._content, self._to_file)
         self._client.write(bytebuf)
@@ -403,7 +428,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
     def channel_inactive(self, ctx):
         super().channel_inactive(ctx)
         if hasattr(self, 'raddr'):
-            pstderr(f"Connection closed: {self.raddr}")
+            pstderr(f"Connection closed: {self.raddr} {socket_description(ctx.channel().socket())}")
             del _clients[self.raddr]
         if self._client:
             self._client.close()
@@ -659,6 +684,23 @@ def set_keepalive(sock, after_idle_sec=60, interval_sec=60, max_fails=5):
         set_keepalive_osx(sock, after_idle_sec, interval_sec, max_fails)
     if plat == 'Windows':
         set_keepalive_win(sock, after_idle_sec, interval_sec, max_fails)
+
+
+def socket_description(sock):
+    '''[id: 0xd829bade, L:/127.0.0.1:2069 - R:/127.0.0.1:55666]'''
+    sock_id = hex(id(sock))
+    fileno = sock.fileno()
+    s_addr = None
+    try:
+        s_addr, s_port = sock.getsockname()
+        d_addr, d_port = sock.getpeername()
+        return f"[id: {sock_id}, fd: {fileno}, L:/{s_addr}:{s_port} - R:/{d_addr}:{d_port}]"
+        pass
+    except Exception:
+        if s_addr:
+            return f"[id: {sock_id}, fd: {fileno}, LISTENING]"
+        else:
+            return f"[id: {sock_id}, fd: {fileno}, CLOSED]"
 
 
 def _run():
