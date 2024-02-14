@@ -267,6 +267,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
             tls=False, content=False, to_file=False,
             disguise_tls_ip=None, disguise_tls_port=None,
             white_list=None,
+            shadow=False,
     ):
         self._remote_host = remote_host
         self._remote_port = remote_port
@@ -279,6 +280,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
         self._disguise_tls_ip = disguise_tls_ip
         self._disguise_tls_port = disguise_tls_port
         self._white_list = white_list
+        self._shadow = shadow
 
     def _client_channel(self, ctx0, ip, port):
 
@@ -317,8 +319,11 @@ class ProxyChannelHandler(LoggingChannelHandler):
     def channel_read(self, ctx, bytebuf):
         super().channel_read(ctx, bytebuf)
         if self._client is None:
-            if self._white_list and not _check_patterns(self._white_list, ctx.channel().socket().getpeername()[0]):
-                pstderr(f"Malicious visitor: {ctx.channel().socket().getpeername()}")
+            if self._shadow and self._disguise_tls_ip and bytebuf[0:2] == b'\x16\x03':
+                pstderr(f"Malicious TLS visitor: {ctx.channel()}")
+                self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
+            elif self._white_list and not _check_patterns(self._white_list, ctx.channel().socket().getpeername()[0]):
+                pstderr(f"Malicious visitor: {ctx.channel()}")
                 self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
             else:
                 self._client_channel(ctx, self._remote_host, self._remote_port)
@@ -366,6 +371,7 @@ class MyHttpHandler(http.server.BaseHTTPRequestHandler):
 @click.option('--disguise-tls-port', '-dtp', type=int, help='Disguise TLS port', default=443, show_default=True)
 @click.option('--white-list', '-wl', help='IP White list for incoming connections (comma separated)')
 @click.option('--run-mock-tls-server', is_flag=True, help='Run mock TLS server')
+@click.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
 @click.option('--verbose', '-v', is_flag=True, help='Verbose mode')
 def _cli(verbose, **kwargs):
     if verbose:
@@ -385,8 +391,11 @@ def run_proxy(
         speed_monitor, speed_monitor_interval,
         disguise_tls_ip, disguise_tls_port,
         white_list,
-        run_mock_tls_server
+        run_mock_tls_server,
+        shadow
 ):
+    if shadow and not (disguise_tls_ip or run_mock_tls_server):
+        pfatal("'--shadow' is not applicable if '--disguise-tls-ip/-dti' or '--run-mock-tls-server' is not specified!")
     if tls and (disguise_tls_ip or run_mock_tls_server):
         pfatal("'--tls/-s' is not applicable if disguise is used!")
     if not white_list and (disguise_tls_ip or run_mock_tls_server):
@@ -435,14 +444,15 @@ def run_proxy(
             tls=tls,
             content=content, to_file=to_file,
             disguise_tls_ip=disguise_tls_ip, disguise_tls_port=disguise_tls_port,
-            white_list=white_list
+            white_list=white_list,
+            shadow=shadow,
         ),
         certfile=cf,
         keyfile=kf,
     )
     disguise = f"https://{disguise_tls_ip}:{disguise_tls_port}" if disguise_tls_ip else 'n/a'
     pstderr(f"Proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} => {remote_server}:{remote_port}{'(TLS)' if tls else ''} ...")
-    pstderr(f"console:{content}, file:{to_file}, disguise:{disguise}, whitelist:{white_list0 or '*'}")
+    pstderr(f"console:{content}, file:{to_file}, disguise:{disguise}, whitelist:{white_list0 or '*'}, shadow:{shadow}")
 
     if speed_monitor:
         import signal
