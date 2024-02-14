@@ -105,16 +105,26 @@ def _pretty_duration(seconds: int) -> str:
 
 
 def _format_bytes(size, scale=1):
-    # 2**10 = 1024
     size = int(size)
     power = 2**10
     n = 0
-    power_labels = {0 : '', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
+    power_labels = {0 : 'B', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
     while size > power:
         size /= power
         size = round(size, scale)
         n += 1
+    if size == int(size):
+        size = int(size)
     return size, power_labels[n]
+
+
+def _pretty_bytes(size: int) -> str:
+    v, unit = _format_bytes(size)
+    return f"{v} {unit}"
+
+
+def _pretty_speed(speed: int) -> str:
+    return _pretty_bytes(speed) + '/s'
 
 
 @define(slots=True, kw_only=True, order=True)
@@ -122,6 +132,8 @@ class _Client():
 
     global_rx = 0
     global_tx = 0
+    max_rx = 0
+    max_tx = 0
 
     last_read_time: float = field(factory=time.perf_counter)
     total_read_bytes: int = field(default=0)
@@ -142,27 +154,17 @@ class _Client():
     def pretty_born_time(self):
         return _pretty_duration(time.perf_counter() - self.born_time)
 
-    def pretty_speed(self):
-        v, unit = _format_bytes(self.rbps)
-        return f"{v:.2f} {unit}/s"
+    def pretty_rx_speed(self):
+        return _pretty_speed(self.rbps)
 
-    def pretty_wspeed(self):
-        v, unit = _format_bytes(self.wbps)
-        return f"{v:.2f} {unit}/s"
+    def pretty_tx_speed(self):
+        return _pretty_speed(self.wbps)
 
-    def pretty_total(self):
-        v, unit = _format_bytes(self.total_read_bytes)
-        if unit:
-            return f"{v:.2f} {unit}"
-        else:
-            return f"{v} B"
+    def pretty_rx_total(self):
+        return _pretty_bytes(self.total_read_bytes)
 
-    def pretty_wtotal(self):
-        v, unit = _format_bytes(self.total_write_bytes)
-        if unit:
-            return f"{v:.2f} {unit}"
-        else:
-            return f"{v} B"
+    def pretty_tx_total(self):
+        return _pretty_bytes(self.total_write_bytes)
 
     def read(self, size):
         self.__class__.global_rx += size
@@ -173,6 +175,7 @@ class _Client():
         self.cumulative_read_bytes += size
         if self.cumulative_read_time > 1:
             self.rbps = int(self.cumulative_read_bytes / self.cumulative_read_time)  # bytes per second
+            self.__class__.max_rx = max(self.__class__.max_rx, self.rbps)
             self.cumulative_read_time = 0
             self.cumulative_read_bytes = 0
 
@@ -185,11 +188,12 @@ class _Client():
         self.cumulative_write_bytes += size
         if self.cumulative_write_time > 1:
             self.wbps = int(self.cumulative_write_bytes / self.cumulative_write_time)  # bytes per second
+            self.__class__.max_tx = max(self.__class__.max_tx, self.wbps)
             self.cumulative_write_time = 0
             self.cumulative_write_bytes = 0
 
     def check(self):
-        if time.perf_counter() - self.last_read_time > 2:
+        if time.perf_counter() - self.last_read_time > 3:
             self.rbps = 0
             self.cumulative_read_time = 0
             self.cumulative_read_bytes = 0
@@ -317,10 +321,10 @@ def _clients_check(interval):
         for address, client in items:
             client.check()
             # ip, port = address
-            pspeed = client.pretty_speed()
-            ptotal = client.pretty_total()
-            pwspeed = client.pretty_wspeed()
-            pwtotal = client.pretty_wtotal()
+            pspeed = client.pretty_rx_speed()
+            ptotal = client.pretty_rx_total()
+            pwspeed = client.pretty_tx_speed()
+            pwtotal = client.pretty_tx_total()
             duration = client.pretty_born_time().lower()
             local_socket = client.local_socket
             proxy_socket = client.proxy_socket
@@ -335,7 +339,9 @@ def _clients_check(interval):
             ever_tx, unit_t = _format_bytes(_Client.global_tx)
             r = f"{ever_rx}{unit_r or 'B'}"
             t = f"{ever_tx}{unit_t or 'B'}"
-            pstderr(f"Average Rx: {average_speed} bytes/s, Average Tx: {average_wspeed} bytes/s, Total Rx: {r}, Total Tx: {t}")
+            max_rx = _pretty_speed(_Client.max_rx)
+            max_tx = _pretty_speed(_Client.max_tx)
+            pstderr(f"Average Rx:{average_speed} bytes/s, Average Tx:{average_wspeed} bytes/s, Ever max Rx:{max_rx}, Ever max Tx:{max_tx}, Total Rx:{r}, Total Tx:{t}")
         time.sleep(interval)
 
 
@@ -410,7 +416,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
         set_keepalive(local_socket)
         self.raddr = local_socket.getpeername()
         _clients[self.raddr].local_socket = local_socket
-        pstderr(f"Connection opened: {socket_description(local_socket)}")
+        pstderr(f"Connection opened: {ctx.channel()}")
 
     def channel_read(self, ctx, bytebuf):
         super().channel_read(ctx, bytebuf)
@@ -428,7 +434,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
     def channel_inactive(self, ctx):
         super().channel_inactive(ctx)
         if hasattr(self, 'raddr'):
-            pstderr(f"Connection closed: {self.raddr} {socket_description(ctx.channel().socket())}")
+            pstderr(f"Connection closed: {ctx.channel()}")
             del _clients[self.raddr]
         if self._client:
             self._client.close()
@@ -459,7 +465,7 @@ class MyHttpHandler(http.server.BaseHTTPRequestHandler):
 @click.option('--key-file', '-kf', help='Key file for local server', type=click.Path(exists=True))
 @click.option('--cert-file', '-cf', help='Certificate file for local server', type=click.Path(exists=True))
 @click.option('--speed-monitor', is_flag=True, help='Print speed info to console for established connection')
-@click.option('--speed-monitor-interval', type=int, default=5, help='Speed monitor interval', show_default=True)
+@click.option('--speed-monitor-interval', type=int, default=3, help='Speed monitor interval', show_default=True)
 @click.option('--disguise-tls-ip', '-dti', help='Disguise TLS IP')
 @click.option('--disguise-tls-port', '-dtp', type=int, help='Disguise TLS port', default=443, show_default=True)
 @click.option('--white-list', '-wl', help='IP White list for incoming connections (comma separated)')
