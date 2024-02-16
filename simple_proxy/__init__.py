@@ -155,10 +155,16 @@ def _pattern_to_regex(pattern: str) -> str:
     return regex_pattern
 
 
+def _repr(obj):
+    if isinstance(obj, (bytes, bytearray)):
+        return f"<<{len(obj)} bytes>>"
+    return repr(obj)
+
+
 def _all_args_repr(args, kw):
     try:
         args_repr = [repr(arg) for arg in args]
-        kws = [f"{k}={repr(v)}" for k, v in kw.items()]
+        kws = [f"{k}={_repr(v)}" for k, v in kw.items()]
         return ', '.join(args_repr + kws)
     except Exception:
         return "(?)"
@@ -183,8 +189,11 @@ def sneaky():
 
 @sneaky()
 def _handle(buffer, direction, src, dst, print_content, to_file):
-    src_ip, src_port = src.getpeername()
-    dst_ip, dst_port = dst.getpeername()
+    try:
+        src_ip, src_port = src.getpeername()[:2]
+        dst_ip, dst_port = dst.getpeername()[:2]
+    except OSError:
+        return buffer
 
     raddr = (src_ip, src_port) if direction else (dst_ip, dst_port)
     client = _clients[raddr]
