@@ -105,22 +105,22 @@ def from_module(filename=None):
     return os.path.join(module_path(mod), filename)
 
 
-def getpeername(sock: socket.socket) -> str:
+def _get_address_str(sock: socket.socket, peer: bool = False) -> str:
     if not sock:
         return '?'
     try:
-        return ':'.join(map(str, sock.getpeername()))
+        addr_tuple = sock.getpeername() if peer else sock.getsockname()
+        return ':'.join(map(str, addr_tuple[:2]))
     except OSError:
-        return '?'
+        return '!'
+
+
+def getpeername(sock: socket.socket) -> str:
+    return _get_address_str(sock, peer=True)
 
 
 def getsockname(sock: socket.socket) -> str:
-    if not sock:
-        return '?'
-    try:
-        return ':'.join(map(str, sock.getsockname()))
-    except OSError:
-        return '?'
+    return _get_address_str(sock, peer=False)
 
 
 def generate_private_key():

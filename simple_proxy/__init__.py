@@ -196,14 +196,15 @@ def _handle(buffer, direction, src, dst, print_content, to_file):
         return buffer
 
     raddr = (src_ip, src_port) if direction else (dst_ip, dst_port)
-    client = _clients[raddr]
+
     if buffer:
-        if direction:
-            client.read(len(buffer))
-        else:
-            client.write(len(buffer))
+        client = _clients.get(raddr)
+        if client:
+            if direction:
+                client.read(len(buffer))
+            else:
+                client.write(len(buffer))
     else:                       # EOF
-        del _clients[raddr]
         return buffer
 
     if not print_content and not to_file:
