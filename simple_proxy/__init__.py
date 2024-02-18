@@ -4,6 +4,7 @@ import ssl
 from functools import wraps
 from py_netty.handler import LoggingChannelHandler
 from py_netty import Bootstrap, ServerBootstrap, EventLoopGroup
+from py_netty.channel import NioSocketChannel
 import traceback
 import sys
 import os
@@ -188,12 +189,15 @@ def sneaky():
 
 
 @sneaky()
-def _handle(buffer, direction, src, dst, print_content, to_file):
-    try:
-        src_ip, src_port = src.getpeername()[:2]
-        dst_ip, dst_port = dst.getpeername()[:2]
-    except OSError:
-        return buffer
+def _handle(buffer: bytes, direction: bool, src: NioSocketChannel, dst: NioSocketChannel, print_content: bool, to_file: bool):
+    # try:
+    #     src_ip, src_port = src.getpeername()[:2]
+    #     dst_ip, dst_port = dst.getpeername()[:2]
+    # except OSError:
+    #     return buffer
+
+    src_ip, src_port = src.channelinfo().peername
+    dst_ip, dst_port = dst.channelinfo().peername
 
     raddr = (src_ip, src_port) if direction else (dst_ip, dst_port)
 
@@ -297,7 +301,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
         class _ChannelHandler(LoggingChannelHandler):
 
             def channel_read(this, ctx, bytebuf):
-                _handle(bytebuf, False, ctx.channel().socket(), ctx0.channel().socket(), self._content, self._to_file)
+                _handle(bytebuf, False, ctx.channel(), ctx0.channel(), self._content, self._to_file)
                 ctx0.write(bytebuf)
 
             def channel_inactive(this, ctx):
@@ -339,7 +343,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
                 self._client_channel(ctx, self._remote_host, self._remote_port)
             _clients[self.raddr].proxy_socket = self._client.socket()
 
-        _handle(bytebuf, True, ctx.channel().socket(), self._client.socket(), self._content, self._to_file)
+        _handle(bytebuf, True, ctx.channel(), self._client, self._content, self._to_file)
         self._client.write(bytebuf)
 
     def channel_inactive(self, ctx):
