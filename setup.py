@@ -22,7 +22,7 @@ config = {
     'keywords': ['network', 'tcp', 'non-blocking', 'proxy'],
     'version': __version__,
     'packages': find_packages(),
-    'install_requires': ['click', 'py-netty', 'cryptography'],
+    'install_requires': ['click', 'py-netty', 'cryptography', 'attrs'],
     'python_requires': ">=3.7, <4",
     'setup_requires': ['wheel'],
     'package_data': {'simple_proxy': ['*']},
