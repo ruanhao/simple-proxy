@@ -43,22 +43,24 @@ def random_sentence():
         adv[random.randrange(0, 5)] + '\n'
 
 
-def pretty_duration(seconds: int) -> str:
+def pretty_duration(seconds: float) -> str:
     TIME_DURATION_UNITS = (
-        ('W', 60 * 60 * 24 * 7),
-        ('D', 60 * 60 * 24),
-        ('H', 60 * 60),
-        ('M', 60),
-        ('S', 1)
+        ('W', 60 * 60 * 24 * 7 * 1000),
+        ('D', 60 * 60 * 24 * 1000),
+        ('H', 60 * 60 * 1000),
+        ('M', 60 * 1000),
+        ('S', 1 * 1000),
+        ('MS', 1)
     )
     if seconds == 0:
         return '0S'
     parts = []
+    milliseconds = int(seconds * 1000)
     for unit, div in TIME_DURATION_UNITS:
-        amount, seconds = divmod(int(seconds), div)
+        amount, milliseconds = divmod(int(milliseconds), div)
         if amount > 0:
             parts.append('{}{}'.format(amount, unit))
-    return ', '.join(parts)
+    return ','.join(parts)
 
 
 def format_bytes(size, scale=1):
@@ -77,7 +79,7 @@ def format_bytes(size, scale=1):
 
 def pretty_bytes(size: int) -> str:
     v, unit = format_bytes(size)
-    return f"{v} {unit}"
+    return f"{v}{unit}"
 
 
 def pretty_speed(speed: int) -> str:

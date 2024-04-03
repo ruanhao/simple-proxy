@@ -356,7 +356,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
         if hasattr(self, 'raddr'):
             c = _clients.pop(self.raddr)
             if c:
-                pstderr(f"Connection closed: {ctx.channel()}, rx:{c.pretty_rx_total()}, tx:{c.pretty_tx_total()}, duration:{c.pretty_born_time().lower()}")
+                pstderr(f"Connection closed: {ctx.channel()}, rx: {c.pretty_rx_total()}, tx: {c.pretty_tx_total()}, duration: {c.pretty_born_time().lower()}")
             else:
                 pstderr(f"Connection closed: {ctx.channel()}")
         if self._client:
