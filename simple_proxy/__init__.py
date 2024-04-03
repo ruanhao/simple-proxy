@@ -354,8 +354,11 @@ class ProxyChannelHandler(LoggingChannelHandler):
     def channel_inactive(self, ctx):
         super().channel_inactive(ctx)
         if hasattr(self, 'raddr'):
-            pstderr(f"Connection closed: {ctx.channel()}")
-            del _clients[self.raddr]
+            c = _clients.pop(self.raddr)
+            if c:
+                pstderr(f"Connection closed: {ctx.channel()}, rx:{c.pretty_rx_total()}, tx:{c.pretty_tx_total()}, duration:{c.pretty_born_time().lower()}")
+            else:
+                pstderr(f"Connection closed: {ctx.channel()}")
         if self._client:
             self._client.close()
 
