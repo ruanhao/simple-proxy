@@ -34,6 +34,10 @@ from simple_proxy.utils import (
 logger = logging.getLogger(__name__)
 
 
+def _alpn_ssl_context_cb(ssl_ctx):
+    ssl_ctx.set_alpn_protocols(["h2", "http/1.1"])
+
+
 def _setup_logging(level=logging.INFO):
     logging.basicConfig(
         handlers=[
@@ -287,6 +291,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
             disguise_tls_ip=None, disguise_tls_port=None,
             white_list=None,
             shadow=False,
+            alpn=False,
     ):
         self._remote_host = remote_host
         self._remote_port = remote_port
@@ -300,6 +305,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
         self._disguise_tls_port = disguise_tls_port
         self._white_list = white_list
         self._shadow = shadow
+        self._alpn = alpn
 
     def _client_channel(self, ctx0, ip, port):
 
@@ -318,7 +324,8 @@ class ProxyChannelHandler(LoggingChannelHandler):
                 eventloop_group=self._client_eventloop_group,
                 handler_initializer=_ChannelHandler,
                 tls=self._tls,
-                verify=False
+                verify=False,
+                ssl_context_cb=_alpn_ssl_context_cb if self._alpn else None,
             ).connect(ip, port, True).sync().channel()
             set_keepalive(self._client.socket())
         return self._client
@@ -394,6 +401,7 @@ class MyHttpHandler(http.server.BaseHTTPRequestHandler):
 @click.option('--white-list', '-wl', help='IP White list for incoming connections (comma separated)')
 @click.option('--run-mock-tls-server', is_flag=True, help='Run mock TLS server')
 @click.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
+@click.option('--alpn', is_flag=True, help='Set ALPN protocol as [h2, http/1.1]')
 @click.option('-v', '--verbose', count=True)
 def _cli(verbose, **kwargs):
     if verbose:
@@ -414,7 +422,8 @@ def run_proxy(
         disguise_tls_ip, disguise_tls_port,
         white_list,
         run_mock_tls_server,
-        shadow
+        shadow,
+        alpn=False
 ):
     if shadow and not (disguise_tls_ip or run_mock_tls_server):
         pfatal("'--shadow' is not applicable if '--disguise-tls-ip/-dti' or '--run-mock-tls-server' is not specified!")
@@ -468,9 +477,11 @@ def run_proxy(
             disguise_tls_ip=disguise_tls_ip, disguise_tls_port=disguise_tls_port,
             white_list=white_list,
             shadow=shadow,
+            alpn=alpn,
         ),
         certfile=cf,
         keyfile=kf,
+        ssl_context_cb=_alpn_ssl_context_cb if alpn else None,
     )
     disguise = f"https://{disguise_tls_ip}:{disguise_tls_port}" if disguise_tls_ip else 'n/a'
     pstderr(f"Proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} => {remote_server}:{remote_port}{'(TLS)' if tls else ''} ...")
