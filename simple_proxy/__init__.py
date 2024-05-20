@@ -496,17 +496,17 @@ def _cli(verbose, **kwargs):
 
 
 def run_proxy(
-        local_server, local_port,
-        remote_server, remote_port,
-        using_global,
-        content, to_file,
-        tls, ss,
-        key_file, cert_file,
-        speed_monitor, speed_monitor_interval,
-        disguise_tls_ip, disguise_tls_port,
-        white_list,
-        run_mock_tls_server,
-        shadow,
+        local_server="localhost", local_port=8080,
+        remote_server="localhost", remote_port=80,
+        using_global=False,
+        content=False, to_file=False,
+        tls=False, ss=False,
+        key_file=None, cert_file=None,
+        speed_monitor=False, speed_monitor_interval=3,
+        disguise_tls_ip=None, disguise_tls_port=443,
+        white_list=None,
+        run_mock_tls_server=False,
+        shadow=False,
         alpn=False,
         http_proxy=False
 ):
