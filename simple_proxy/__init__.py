@@ -16,6 +16,7 @@ import codecs
 from collections import defaultdict
 import time
 from attrs import define, field
+import urllib
 from simple_proxy.utils import (
     submit_daemon_thread,
     random_sentence,
@@ -382,6 +383,86 @@ class MyHttpHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(random_sentence().encode('utf-8'))
 
 
+class HttpProxyChannelHandler(LoggingChannelHandler):
+    def __init__(self, client_eventloop_group, content=False, to_file=False):
+        self._client_eventloop_group = client_eventloop_group
+        self._client = None
+        self._negociated = False
+        self._buffer = b''
+        self._content = content
+        self._to_file = to_file
+
+    def _client_channel(self, ctx0, ip, port):
+
+        class _ChannelHandler(LoggingChannelHandler):
+
+            def channel_read(this, ctx, bytebuf):
+                _handle(bytebuf, False, ctx.channel(), ctx0.channel(), self._content, self._to_file)
+                ctx0.write(bytebuf)
+
+            def channel_inactive(this, ctx):
+                ctx0.close()
+
+        if self._client is None:
+            self._client = Bootstrap(
+                eventloop_group=self._client_eventloop_group,
+                handler_initializer=_ChannelHandler
+            ).connect(ip, port, True).sync().channel()
+        return self._client
+
+    def exception_caught(self, ctx, exception):
+        super().exception_caught(ctx, exception)
+        ctx.close()
+
+    def channel_active(self, ctx):
+        local_socket = ctx.channel().socket()
+        set_keepalive(local_socket)
+        self.raddr = local_socket.getpeername()
+        _clients[self.raddr].local_socket = local_socket
+        pstderr(f"[HTTP PROXY] Connection opened   : {ctx.channel()}")
+
+    def channel_read(self, ctx, bytebuf):
+        if self._negociated:
+            self._client.write(bytebuf)
+        else:
+            self._buffer += bytebuf
+            if b'\r\n\r\n' in self._buffer:
+                self._negociated = True
+                content = self._buffer.decode('ascii', errors='using_dot')
+
+                idx = content.index('HTTP')
+                peer = ctx.channel().channelinfo().peername[0]
+                if 'CONNECT' in content:  # https proxy
+                    host_and_port = content[:idx].strip().split(' ')[1]
+                    pstderr(f"[HTPT Proxy] Connection requests : {peer} | HTTPS | {host_and_port} | {ctx.channel().id()}")
+                    host, port = host_and_port.split(':')
+                    _clients[self.raddr].proxy_socket = self._client_channel(ctx, host, int(port)).socket()
+                    ctx.write(b'HTTP/1.1 200 Connection Established\r\n\r\n')
+                else:           # http proxy
+                    url = content[:idx].strip().split(' ')[1]
+                    parsed = urllib.parse.urlparse(url)
+                    host, port = parsed.hostname, parsed.port or 80
+                    pstderr(f"[HTTP Proxy] Connection requests : {peer} | HTTP  | {host}:{port} | {ctx.channel().id()}")
+                    _clients[self.raddr].proxy_socket = self._client_channel(ctx, host, port).socket()
+                    self._client.write(self._buffer)
+
+                self._buffer = b''
+
+        if self._client:
+            _handle(bytebuf, True, ctx.channel(), self._client, self._content, self._to_file)
+
+    def channel_inactive(self, ctx):
+        super().channel_inactive(ctx)
+        if hasattr(self, 'raddr'):
+            c = _clients.pop(self.raddr)
+            if c:
+                pstderr(f"[HTTP Proxy] Connection closed   : {ctx.channel()}, rx: {c.pretty_rx_total()}, tx: {c.pretty_tx_total()}, duration: {c.pretty_born_time().lower()}")
+            else:
+                pstderr(f"[HTTP Proxy] Connection closed   : {ctx.channel()}")
+        if self._client:
+            self._client.close()
+
+
 @click.command(short_help="Simple proxy", context_settings=dict(help_option_names=['-h', '--help']))
 @click.option('--local-server', '-l', default='localhost', help='Local server address', show_default=True)
 @click.option('--local-port', '-lp', type=int, default=8080, help='Local port', show_default=True)
@@ -402,8 +483,11 @@ class MyHttpHandler(http.server.BaseHTTPRequestHandler):
 @click.option('--run-mock-tls-server', is_flag=True, help='Run mock TLS server')
 @click.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
 @click.option('--alpn', is_flag=True, help='Set ALPN protocol as [h2, http/1.1]')
+@click.option('--http-proxy', is_flag=True, help='HTTP proxy mode')
 @click.option('-v', '--verbose', count=True)
 def _cli(verbose, **kwargs):
+    """> simple-proxy --http-proxy --speed-monitor -c -f --speed-monitor # run as http(s) proxy server
+    """
     if verbose:
         _setup_logging(logging.INFO if verbose == 1 else logging.DEBUG)
         logger.setLevel(logging.DEBUG)
@@ -423,7 +507,8 @@ def run_proxy(
         white_list,
         run_mock_tls_server,
         shadow,
-        alpn=False
+        alpn=False,
+        http_proxy=False
 ):
     if shadow and not (disguise_tls_ip or run_mock_tls_server):
         pfatal("'--shadow' is not applicable if '--disguise-tls-ip/-dti' or '--run-mock-tls-server' is not specified!")
@@ -466,26 +551,38 @@ def run_proxy(
         submit_daemon_thread(httpd.serve_forever)
 
     client_eventloop_group = EventLoopGroup(1, 'Client')
-    sb = ServerBootstrap(
-        parant_group=EventLoopGroup(1, 'Boss'),
-        child_group=EventLoopGroup(1, 'Worker'),
-        child_handler_initializer=lambda: ProxyChannelHandler(
-            remote_server, remote_port,
-            client_eventloop_group,
-            tls=tls,
-            content=content, to_file=to_file,
-            disguise_tls_ip=disguise_tls_ip, disguise_tls_port=disguise_tls_port,
-            white_list=white_list,
-            shadow=shadow,
-            alpn=alpn,
-        ),
-        certfile=cf,
-        keyfile=kf,
-        ssl_context_cb=_alpn_ssl_context_cb if alpn else None,
-    )
-    disguise = f"https://{disguise_tls_ip}:{disguise_tls_port}" if disguise_tls_ip else 'n/a'
-    pstderr(f"Proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} => {remote_server}:{remote_port}{'(TLS)' if tls else ''} ...")
-    pstderr(f"console:{content}, file:{to_file}, disguise:{disguise}, whitelist:{white_list0 or '*'}, shadow:{shadow}")
+    if http_proxy:
+        sb = ServerBootstrap(
+            parant_group=EventLoopGroup(1, 'Boss'),
+            child_group=EventLoopGroup(1, 'Worker'),
+            child_handler_initializer=lambda: HttpProxyChannelHandler(
+                client_eventloop_group,
+                content=content,
+                to_file=to_file,
+            ),
+        )
+        pstderr(f"HTTP Proxy server started listening: {local_server}:{local_port} [console:{content}, file:{to_file}] ... ")
+    else:
+        sb = ServerBootstrap(
+            parant_group=EventLoopGroup(1, 'Boss'),
+            child_group=EventLoopGroup(1, 'Worker'),
+            child_handler_initializer=lambda: ProxyChannelHandler(
+                remote_server, remote_port,
+                client_eventloop_group,
+                tls=tls,
+                content=content, to_file=to_file,
+                disguise_tls_ip=disguise_tls_ip, disguise_tls_port=disguise_tls_port,
+                white_list=white_list,
+                shadow=shadow,
+                alpn=alpn,
+            ),
+            certfile=cf,
+            keyfile=kf,
+            ssl_context_cb=_alpn_ssl_context_cb if alpn else None,
+        )
+        disguise = f"https://{disguise_tls_ip}:{disguise_tls_port}" if disguise_tls_ip else 'n/a'
+        pstderr(f"Proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} => {remote_server}:{remote_port}{'(TLS)' if tls else ''} ...")
+        pstderr(f"console:{content}, file:{to_file}, disguise:{disguise}, whitelist:{white_list0 or '*'}, shadow:{shadow}")
 
     if speed_monitor:
         import signal
