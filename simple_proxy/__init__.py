@@ -17,6 +17,8 @@ from collections import defaultdict
 import time
 from attrs import define, field
 import urllib
+import subprocess
+import shutil
 from simple_proxy.utils import (
     submit_daemon_thread,
     random_sentence,
@@ -283,6 +285,115 @@ def _clients_check(interval):
         time.sleep(interval)
 
 
+class ShellChannelHandler(LoggingChannelHandler):
+
+    def handle_read_output(self, ctx, fd):
+        pstderr(f"{ctx.channel()} Start reading output from fd {fd} ...")
+        while True:
+            try:
+                data = os.read(fd, 1024)
+                if not data:
+                    pstderr(f"{ctx.channel()} EOF reached on fd {fd}")
+                    ctx.close()
+                    return
+                logger.debug(f"{ctx.channel()} Read {len(data)} bytes from fd {fd}")
+                ctx.write(data)
+                c = _clients.get(self.raddr)
+                if c:
+                    c.write(len(data))
+            except Exception as e:
+                pstderr(f"{ctx.channel()} Exception reading output from fd {fd}: {e}")
+                ctx.close()
+                return
+
+    def _windows_shell_args(self):
+        if shutil.which('cmd'):
+            return [shutil.which('cmd'), '/Q', '/K']
+        else:
+            raise Exception("No shell found")
+
+    def _setup_windows_shell(self, ctx):
+        my_env = os.environ.copy()
+        args = self._windows_shell_args()
+        pstderr(f"{ctx.channel()} Starting shell with args: {args}")
+        self._process = subprocess.Popen(
+            args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            bufsize=-1,
+            env=my_env
+        )
+        submit_daemon_thread(self.handle_read_output, ctx, self._process.stdout.fileno())
+        submit_daemon_thread(self.handle_read_output, ctx, self._process.stderr.fileno())
+        self._shell_stdin_fd = self._process.stdin.fileno()
+
+    def _setup_linux_shell(self, ctx):
+        bash = shutil.which('bash')
+        master_fd, slave_fd = os.openpty()
+        my_env = os.environ.copy()
+        args = [bash, '-li']
+        pstderr(f"{ctx.channel()} Starting shell with args: {args}")
+        self._process = subprocess.Popen(
+            args,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            bufsize=-1,
+            start_new_session=True,
+            env=my_env
+        )
+        os.close(slave_fd)
+        self._shell_stdin_fd = master_fd
+        submit_daemon_thread(self.handle_read_output, ctx, master_fd)
+
+    def _setup_linux_shell0(self, ctx):
+        my_env = os.environ.copy()
+        i_r, i_w = os.pipe()
+        o_r, o_w = os.pipe()
+        self._process = subprocess.Popen(
+            [shutil.which('bash'), '-li'],
+            stdin=i_r,
+            stdout=o_w,
+            stderr=o_w,
+            bufsize=-1,
+            start_new_session=True,
+            env=my_env
+        )
+        self._shell_stdin_fd = i_w
+        submit_daemon_thread(self.handle_read_output, ctx, o_r)
+
+    def channel_active(self, ctx):
+        super().channel_active(ctx)
+        local_socket = ctx.channel().socket()
+        self.raddr = local_socket.getpeername()
+        _clients[self.raddr].local_socket = local_socket
+
+        if os.name == 'nt':
+            self._setup_windows_shell(ctx)
+        else:
+            self._setup_linux_shell(ctx)
+
+        pstderr(f"{ctx.channel()} Shell started: {self._process.pid}")
+
+    def channel_read(self, ctx, bytebuf):
+        super().channel_read(ctx, bytebuf)
+        if hasattr(self, 'raddr'):
+            _clients[self.raddr].read(len(bytebuf))
+        os.write(self._shell_stdin_fd, bytebuf)
+
+    def channel_inactive(self, ctx):
+        super().channel_inactive(ctx)
+
+        c = _clients.pop(self.raddr)
+        pstderr(f"{ctx.channel()} Connection closed, rx: {c.pretty_rx_total()}, tx: {c.pretty_tx_total()}, duration: {c.pretty_born_time().lower()}")
+
+        self._process.kill()
+        os.close(self._shell_stdin_fd)
+        pstderr(f"{ctx.channel()} Shell terminated: {self._process.pid}")
+
+
 class ProxyChannelHandler(LoggingChannelHandler):
     def __init__(
             self,
@@ -463,7 +574,10 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
             self._client.close()
 
 
-@click.command(short_help="Simple proxy", context_settings=dict(help_option_names=['-h', '--help']))
+@click.command(short_help="Simple proxy", context_settings=dict(
+    help_option_names=['-h', '--help'],
+    max_content_width=shutil.get_terminal_size().columns - 10,
+))
 @click.option('--local-server', '-l', default='localhost', help='Local server address', show_default=True)
 @click.option('--local-port', '-lp', type=int, default=8080, help='Local port', show_default=True)
 @click.option('--remote-server', '-r', default='localhost', help='Remote server address', show_default=True)
@@ -475,8 +589,8 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 @click.option('-ss', is_flag=True, help='Denote local sever listening on secure port')
 @click.option('--key-file', '-kf', help='Key file for local server', type=click.Path(exists=True))
 @click.option('--cert-file', '-cf', help='Certificate file for local server', type=click.Path(exists=True))
-@click.option('--speed-monitor', is_flag=True, help='Print speed info to console for established connection')
-@click.option('--speed-monitor-interval', type=int, default=3, help='Speed monitor interval', show_default=True)
+@click.option('--speed-monitor', '-sm', is_flag=True, help='Print speed info to console for established connection')
+@click.option('--speed-monitor-interval', '-smi', type=int, default=3, help='Speed monitor interval', show_default=True)
 @click.option('--disguise-tls-ip', '-dti', help='Disguise TLS IP')
 @click.option('--disguise-tls-port', '-dtp', type=int, help='Disguise TLS port', default=443, show_default=True)
 @click.option('--white-list', '-wl', help='IP White list for incoming connections (comma separated)')
@@ -484,10 +598,9 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 @click.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
 @click.option('--alpn', is_flag=True, help='Set ALPN protocol as [h2, http/1.1]')
 @click.option('--http-proxy', is_flag=True, help='HTTP proxy mode')
+@click.option('--shell-proxy', is_flag=True, help='Shell proxy mode')
 @click.option('-v', '--verbose', count=True)
 def _cli(verbose, **kwargs):
-    """> simple-proxy --http-proxy --speed-monitor -c -f --speed-monitor # run as http(s) proxy server
-    """
     if verbose:
         _setup_logging(logging.INFO if verbose == 1 else logging.DEBUG)
         logger.setLevel(logging.DEBUG)
@@ -508,7 +621,8 @@ def run_proxy(
         run_mock_tls_server=False,
         shadow=False,
         alpn=False,
-        http_proxy=False
+        http_proxy=False,
+        shell_proxy=False,
 ):
     if shadow and not (disguise_tls_ip or run_mock_tls_server):
         pfatal("'--shadow' is not applicable if '--disguise-tls-ip/-dti' or '--run-mock-tls-server' is not specified!")
@@ -562,6 +676,15 @@ def run_proxy(
             ),
         )
         pstderr(f"HTTP Proxy server started listening: {local_server}:{local_port} [console:{content}, file:{to_file}] ... ")
+    elif shell_proxy:
+        sb = ServerBootstrap(
+            parant_group=EventLoopGroup(1, 'Boss'),
+            child_group=EventLoopGroup(1, 'Worker'),
+            child_handler_initializer=ShellChannelHandler,
+            certfile=cf,
+            keyfile=kf,
+        )
+        pstderr(f"Shell proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} ...")
     else:
         sb = ServerBootstrap(
             parant_group=EventLoopGroup(1, 'Boss'),

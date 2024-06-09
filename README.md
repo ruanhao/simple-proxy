@@ -1,6 +1,6 @@
 # simple-proxy :rocket:
 
-A very simple TCP proxy tool (not http proxy) empowered by nio tcp framework [py-netty](https://pypi.org/project/py-netty/)
+A very simple TCP proxy tool empowered by nio tcp framework [py-netty](https://pypi.org/project/py-netty/)
 
 
 
@@ -25,22 +25,23 @@ Options:
   -g, --global                    Listen on 0.0.0.0
   -c, --tcp-flow                  Dump tcp flow on to console
   -f, --save-tcp-flow             Save tcp flow to file
-  -s, --tls                       Denote remote server listening on secure
-                                  port
+  -s, --tls                       Denote remote server listening on secure port
   -ss                             Denote local sever listening on secure port
   -kf, --key-file PATH            Key file for local server
   -cf, --cert-file PATH           Certificate file for local server
-  --speed-monitor                 Print speed info to console for established
-                                  connection
-  --speed-monitor-interval INTEGER
-                                  Speed monitor interval  [default: 5]
+  -sm, --speed-monitor            Print speed info to console for established connection
+  -smi, --speed-monitor-interval INTEGER
+                                  Speed monitor interval  [default: 3]
   -dti, --disguise-tls-ip TEXT    Disguise TLS IP
   -dtp, --disguise-tls-port INTEGER
                                   Disguise TLS port  [default: 443]
-  -wl, --white-list TEXT          IP White list for incoming connections
-                                  (comma separated)
+  -wl, --white-list TEXT          IP White list for incoming connections (comma separated)
   --run-mock-tls-server           Run mock TLS server
-  -v, --verbose                   Verbose mode
+  --shadow                        Disguise if incoming connection is TLS client request
+  --alpn                          Set ALPN protocol as [h2, http/1.1]
+  --http-proxy                    HTTP proxy mode
+  --shell-proxy                   Shell proxy mode
+  -v, --verbose
   -h, --help                      Show this message and exit.
 ```
 
@@ -98,6 +99,25 @@ Connection opened: ('127.0.0.1', 60944)
 [  7] | 127.0.0.1:60943       | Speed Rx:32.00 K/s  Tx:32.00 K/s  | Total Rx:234.00 K   Tx:234.00 K   | duration: 7s
 [  8] | 127.0.0.1:60944       | Speed Rx:32.00 K/s  Tx:32.00 K/s  | Total Rx:234.00 K   Tx:234.00 K   | duration: 7s
 Average Read Speed:  32765.0 bytes/s, Average Write Speed: 32752.88 bytes/s
+```
+
+### HTTP Proxy
+You can set global envs *https_proxy* or *https_proxy* after http proxy server startd.
+```commandline
+> simple-proxy --http-proxy
+```
+
+### Shell Proxy
+Make shell accessible through TCP. Please run this mode with caution.
+
+:warning: Stop the server as soon as you finish your work.
+
+```commandline
+> simple-proxy --shell-proxy
+
+# How to connect:
+# socat file:`tty`,raw,echo=0 tcp:<server-ip>:<server-port> # for Bash proxy in Linux
+# socat - tcp:<server-ip>:<server-port> # for cmd.exe proxy in Windows
 ```
 
 ### Disguise as HTTPS server with whitelist
