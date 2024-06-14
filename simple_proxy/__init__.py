@@ -19,6 +19,7 @@ from attrs import define, field
 import urllib
 import subprocess
 import shutil
+from typing import Optional
 from simple_proxy.utils import (
     submit_daemon_thread,
     random_sentence,
@@ -453,20 +454,33 @@ class ProxyChannelHandler(LoggingChannelHandler):
         self.raddr = local_socket.getpeername()
         _clients[self.raddr].local_socket = local_socket
         pstderr(f"Connection opened: {ctx.channel()}")
+        self._create_client(ctx, None)
+
+    def _create_client(self, ctx, bytebuf: Optional[bytes]):
+        if self._client:
+            return
+
+        if self._shadow and self._disguise_tls_ip and bytebuf is None:
+            # wait for the first packet
+            return
+
+        if self._shadow and self._disguise_tls_ip and bytebuf[0:2] == b'\x16\x03':
+            pstderr(f"Malicious TLS visitor: {ctx.channel()}")
+            self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
+        elif self._white_list and not _check_patterns(self._white_list, ctx.channel().socket().getpeername()[0]):
+            pstderr(f"Malicious visitor: {ctx.channel()}")
+            if self._disguise_tls_ip and self._disguise_tls_port:
+                self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
+            else:
+                ctx.close()
+                return
+        else:
+            self._client_channel(ctx, self._remote_host, self._remote_port)
+        _clients[self.raddr].proxy_socket = self._client.socket()
 
     def channel_read(self, ctx, bytebuf):
         super().channel_read(ctx, bytebuf)
-        if self._client is None:
-            if self._shadow and self._disguise_tls_ip and bytebuf[0:2] == b'\x16\x03':
-                pstderr(f"Malicious TLS visitor: {ctx.channel()}")
-                self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
-            elif self._white_list and not _check_patterns(self._white_list, ctx.channel().socket().getpeername()[0]):
-                pstderr(f"Malicious visitor: {ctx.channel()}")
-                self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
-            else:
-                self._client_channel(ctx, self._remote_host, self._remote_port)
-            _clients[self.raddr].proxy_socket = self._client.socket()
-
+        self._create_client(ctx, bytebuf)
         _handle(bytebuf, True, ctx.channel(), self._client, self._content, self._to_file)
         self._client.write(bytebuf)
 
@@ -628,8 +642,11 @@ def run_proxy(
         pfatal("'--shadow' is not applicable if '--disguise-tls-ip/-dti' or '--run-mock-tls-server' is not specified!")
     if tls and (disguise_tls_ip or run_mock_tls_server):
         pfatal("'--tls/-s' is not applicable if disguise is used!")
-    if not white_list and (disguise_tls_ip or run_mock_tls_server):
-        pstderr("[WARN] disguise is not took effect if '--white-list/-wl' is not specified")
+
+    if white_list and not (disguise_tls_ip or run_mock_tls_server):
+        pstderr("[WARN] Malicious connection will be dropped immediately when neither '--disguise-tls-ip/-dti' nor '--run-mock-tls-server' is specified!")
+    if (disguise_tls_ip or run_mock_tls_server) and not white_list and not shadow:
+        pstderr("[WARN] Disguise will not take effect when neither '--shadow' nor '--white-list/-wl' is specified")
 
     white_list0 = white_list or ''
     if white_list:
