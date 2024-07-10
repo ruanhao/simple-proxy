@@ -405,6 +405,8 @@ class ProxyChannelHandler(LoggingChannelHandler):
             white_list=None,
             shadow=False,
             alpn=False,
+            read_delay_millis=0,
+            write_delay_millis=0,
     ):
         self._remote_host = remote_host
         self._remote_port = remote_port
@@ -419,6 +421,8 @@ class ProxyChannelHandler(LoggingChannelHandler):
         self._white_list = white_list
         self._shadow = shadow
         self._alpn = alpn
+        self._read_delay_millis = read_delay_millis
+        self._write_delay_millis = write_delay_millis
 
     def _client_channel(self, ctx0, ip, port):
 
@@ -426,6 +430,8 @@ class ProxyChannelHandler(LoggingChannelHandler):
 
             def channel_read(this, ctx, bytebuf):
                 _handle(bytebuf, False, ctx.channel(), ctx0.channel(), self._content, self._to_file)
+                if self._read_delay_millis > 0:
+                    time.sleep(self._read_delay_millis / 1000)
                 ctx0.write(bytebuf)
 
             def channel_inactive(this, ctx):
@@ -482,6 +488,8 @@ class ProxyChannelHandler(LoggingChannelHandler):
         super().channel_read(ctx, bytebuf)
         self._create_client(ctx, bytebuf)
         _handle(bytebuf, True, ctx.channel(), self._client, self._content, self._to_file)
+        if self._write_delay_millis > 0:
+            time.sleep(self._write_delay_millis / 1000)
         self._client.write(bytebuf)
 
     def channel_inactive(self, ctx):
@@ -614,6 +622,8 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 @click.option('--http-proxy', is_flag=True, help='HTTP proxy mode')
 @click.option('--shell-proxy', is_flag=True, help='Shell proxy mode')
 @click.option('-v', '--verbose', count=True)
+@click.option('--read-delay-millis', type=int, help='Read delay in milliseconds (only apply to TCP proxy mode)', default=0, show_default=True)
+@click.option('--write-delay-millis', type=int, help='Write delay in milliseconds (only apply to TCP proxy mode)', default=0, show_default=True)
 def _cli(verbose, **kwargs):
     if verbose:
         _setup_logging(logging.INFO if verbose == 1 else logging.DEBUG)
@@ -637,6 +647,7 @@ def run_proxy(
         alpn=False,
         http_proxy=False,
         shell_proxy=False,
+        read_delay_millis=0, write_delay_millis=0
 ):
     if shadow and not (disguise_tls_ip or run_mock_tls_server):
         pfatal("'--shadow' is not applicable if '--disguise-tls-ip/-dti' or '--run-mock-tls-server' is not specified!")
@@ -715,6 +726,8 @@ def run_proxy(
                 white_list=white_list,
                 shadow=shadow,
                 alpn=alpn,
+                read_delay_millis=read_delay_millis,
+                write_delay_millis=write_delay_millis,
             ),
             certfile=cf,
             keyfile=kf,
