@@ -605,6 +605,8 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 @click.option('--remote-server', '-r', default='localhost', help='Remote server address', show_default=True)
 @click.option('--remote-port', '-rp', type=int, default=80, help='Remote port', show_default=True)
 @click.option('--global', '-g', 'using_global', is_flag=True, help='Listen on 0.0.0.0')
+@click.option('--workers', type=int, default=1, help='Number of worker threads', show_default=True)
+@click.option('--proxy-workers', type=int, default=1, help='Number of proxy threads', show_default=True)
 @click.option('--tcp-flow', '-c', 'content', is_flag=True, help='Dump tcp flow on to console')
 @click.option('--save-tcp-flow', '-f', 'to_file', is_flag=True, help='Save tcp flow to file')
 @click.option('--tls', '-s', is_flag=True, help='Denote remote server listening on secure port')
@@ -647,7 +649,8 @@ def run_proxy(
         alpn=False,
         http_proxy=False,
         shell_proxy=False,
-        read_delay_millis=0, write_delay_millis=0
+        read_delay_millis=0, write_delay_millis=0,
+        workers=1, proxy_workers=1,
 ):
     if shadow and not (disguise_tls_ip or run_mock_tls_server):
         pfatal("'--shadow' is not applicable if '--disguise-tls-ip/-dti' or '--run-mock-tls-server' is not specified!")
@@ -692,11 +695,11 @@ def run_proxy(
                                        ssl_version=ssl.PROTOCOL_TLS)
         submit_daemon_thread(httpd.serve_forever)
 
-    client_eventloop_group = EventLoopGroup(1, 'Client')
+    client_eventloop_group = EventLoopGroup(proxy_workers, 'Client')
     if http_proxy:
         sb = ServerBootstrap(
             parant_group=EventLoopGroup(1, 'Boss'),
-            child_group=EventLoopGroup(1, 'Worker'),
+            child_group=EventLoopGroup(workers, 'Worker'),
             child_handler_initializer=lambda: HttpProxyChannelHandler(
                 client_eventloop_group,
                 content=content,
@@ -707,7 +710,7 @@ def run_proxy(
     elif shell_proxy:
         sb = ServerBootstrap(
             parant_group=EventLoopGroup(1, 'Boss'),
-            child_group=EventLoopGroup(1, 'Worker'),
+            child_group=EventLoopGroup(workers, 'Worker'),
             child_handler_initializer=ShellChannelHandler,
             certfile=cf,
             keyfile=kf,
@@ -716,7 +719,7 @@ def run_proxy(
     else:
         sb = ServerBootstrap(
             parant_group=EventLoopGroup(1, 'Boss'),
-            child_group=EventLoopGroup(1, 'Worker'),
+            child_group=EventLoopGroup(workers, 'Worker'),
             child_handler_initializer=lambda: ProxyChannelHandler(
                 remote_server, remote_port,
                 client_eventloop_group,
