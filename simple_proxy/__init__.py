@@ -434,6 +434,16 @@ class ProxyChannelHandler(LoggingChannelHandler):
                     time.sleep(self._read_delay_millis / 1000)
                 ctx0.write(bytebuf)
 
+            def channel_writability_changed(this, ctx) -> None:
+                writable = ctx.channel().is_writable()
+                if not writable:
+                    this._unwritable_seconds = time.perf_counter()
+                    logger.warning(f"{ctx0.channel()} client(proxy) writability changed: {writable}")
+                else:
+                    recovery_time_seconds = time.perf_counter() - this._unwritable_seconds
+                    logger.warning(f"{ctx0.channel()} client(proxy) writability changed: {writable} ({recovery_time_seconds:.2f}s)")
+                ctx0.channel().set_auto_read(ctx.channel().is_writable())
+
             def channel_inactive(this, ctx):
                 super().channel_inactive(ctx)
                 ctx0.close()
@@ -448,6 +458,16 @@ class ProxyChannelHandler(LoggingChannelHandler):
             ).connect(ip, port, True).sync().channel()
             set_keepalive(self._client.socket())
         return self._client
+
+    def channel_writability_changed(self, ctx) -> None:
+        writable = ctx.channel().is_writable()
+        if not writable:
+            self._unwritable_seconds = time.perf_counter()
+            logger.warning(f"{ctx.channel()} channel writability changed: {writable}")
+        else:
+            recovery_time_seconds = time.perf_counter() - self._unwritable_seconds
+            logger.warning(f"{ctx.channel()} channel writability changed: {writable} ({recovery_time_seconds:.2f}s)")
+        self._client.set_auto_read(ctx.channel().is_writable())
 
     def exception_caught(self, ctx, exception):
         super().exception_caught(ctx, exception)
