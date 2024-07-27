@@ -2,8 +2,13 @@
 
 A very simple TCP proxy tool empowered by nio tcp framework [py-netty](https://pypi.org/project/py-netty/)
 
+Traffic control is negociated between 2 segments of TCP connection:
 
-
+```
+USER <---------> simple-proxy <---------> REAL SERVER
+          |                         |
+          |---- traffic control ----|
+```
 
 
 ## Installation
@@ -23,6 +28,8 @@ Options:
   -r, --remote-server TEXT        Remote server address  [default: localhost]
   -rp, --remote-port INTEGER      Remote port  [default: 80]
   -g, --global                    Listen on 0.0.0.0
+  --workers INTEGER               Number of worker threads  [default: 1]
+  --proxy-workers INTEGER         Number of proxy threads  [default: 1]
   -c, --tcp-flow                  Dump tcp flow on to console
   -f, --save-tcp-flow             Save tcp flow to file
   -s, --tls                       Denote remote server listening on secure port
@@ -42,6 +49,8 @@ Options:
   --http-proxy                    HTTP proxy mode
   --shell-proxy                   Shell proxy mode
   -v, --verbose
+  --read-delay-millis INTEGER     Read delay in milliseconds (only apply to TCP proxy mode)  [default: 0]
+  --write-delay-millis INTEGER    Write delay in milliseconds (only apply to TCP proxy mode)  [default: 0]
   -h, --help                      Show this message and exit.
 ```
 
