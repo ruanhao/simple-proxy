@@ -34,6 +34,7 @@ from simple_proxy.utils import (
     free_port,
     set_keepalive
 )
+from simple_proxy.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -646,6 +647,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 @click.option('-v', '--verbose', count=True)
 @click.option('--read-delay-millis', type=int, help='Read delay in milliseconds (only apply to TCP proxy mode)', default=0, show_default=True)
 @click.option('--write-delay-millis', type=int, help='Write delay in milliseconds (only apply to TCP proxy mode)', default=0, show_default=True)
+@click.version_option(prog_name='Simple Proxy', version=__version__)
 def _cli(verbose, **kwargs):
     if verbose:
         _setup_logging(logging.INFO if verbose == 1 else logging.DEBUG)
