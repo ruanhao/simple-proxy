@@ -43,11 +43,18 @@ def _alpn_ssl_context_cb(ssl_ctx):
     ssl_ctx.set_alpn_protocols(["h2", "http/1.1"])
 
 
-def _setup_logging(level=logging.INFO):
+def _setup_logging(log_file, level=logging.INFO):
+    handler = logging.StreamHandler()
+    if log_file:
+        from logging.handlers import RotatingFileHandler
+        pstderr(f"Save log at {log_file}")
+        handler = RotatingFileHandler(
+            filename=log_file,
+            maxBytes=10 * 1024 * 1024,  # 10M
+            backupCount=5
+        )
     logging.basicConfig(
-        handlers=[
-            logging.StreamHandler(),  # default to stderr
-        ],
+        handlers=[handler],
         level=level,
         format='%(asctime)s.%(msecs)03d - %(name)s - %(levelname)s - %(threadName)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
@@ -647,10 +654,11 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 @click.option('-v', '--verbose', count=True)
 @click.option('--read-delay-millis', type=int, help='Read delay in milliseconds (only apply to TCP proxy mode)', default=0, show_default=True)
 @click.option('--write-delay-millis', type=int, help='Write delay in milliseconds (only apply to TCP proxy mode)', default=0, show_default=True)
+@click.option('--log-file', help='Log file', type=click.Path())
 @click.version_option(prog_name='Simple Proxy', version=__version__)
-def _cli(verbose, **kwargs):
+def _cli(verbose, log_file: click.Path, **kwargs):
+    _setup_logging(log_file, logging.INFO if verbose == 0 else logging.DEBUG)
     if verbose:
-        _setup_logging(logging.INFO if verbose == 1 else logging.DEBUG)
         logger.setLevel(logging.DEBUG)
         logging.getLogger('simple_proxy.utils').setLevel(logging.DEBUG)
     run_proxy(**kwargs)
