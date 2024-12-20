@@ -19,7 +19,7 @@ from attrs import define, field
 import urllib
 import subprocess
 import shutil
-from typing import Optional
+from typing import Optional, Tuple
 from simple_proxy.utils import (
     submit_daemon_thread,
     random_sentence,
@@ -545,13 +545,14 @@ class MyHttpHandler(http.server.BaseHTTPRequestHandler):
 
 
 class HttpProxyChannelHandler(LoggingChannelHandler):
-    def __init__(self, client_eventloop_group, content=False, to_file=False):
+    def __init__(self, client_eventloop_group, content=False, to_file=False, transform: Tuple[Tuple[str, int, str, int]] = None):
         self._client_eventloop_group = client_eventloop_group
         self._client = None
         self._negociated = False
         self._buffer = b''
         self._content = content
         self._to_file = to_file
+        self._transform = transform
 
     def _client_channel(self, ctx0, ip, port):
 
@@ -580,7 +581,22 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
         set_keepalive(local_socket)
         self.raddr = local_socket.getpeername()
         _clients[self.raddr].local_socket = local_socket
-        pstderr(f"[HTTP PROXY] Connection opened   : {ctx.channel()}")
+        if logger.isEnabledFor(logging.DEBUG):
+            pstderr(f"[HTTP PROXY] Connection opened   : {ctx.channel()}")
+
+    def _transform_host_port(self, origin_host: str, origin_port: int) -> Tuple[str, int]:
+        if self._transform:
+            for h0, p0, h, p in self._transform:
+                if h0 == origin_host and p0 == origin_port:
+                    return h, p
+        return origin_host, origin_port
+
+    def _print_record(self, channel_id: str, https: bool, peer: str, host0: str, port0: int, host: str, port: int):
+        proto = 'HTTPS' if https else 'HTTP '
+        if host0 == host and port0 == port:
+            pstderr(f"[HTTP Proxy] Connection requests : {proto} | {channel_id} | {peer} | {host0}:{port0}")
+        else:
+            pstderr(f"[HTTP Proxy] Connection requests : {proto} | {channel_id} | {peer} | {host0}:{port0} > {host}:{port}")
 
     def channel_read(self, ctx, bytebuf):
         if self._negociated:
@@ -593,17 +609,20 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 
                 idx = content.index('HTTP')
                 peer = ctx.channel().channelinfo().peername[0]
+                channel_id = ctx.channel().id()
                 if 'CONNECT' in content:  # https proxy
                     host_and_port = content[:idx].strip().split(' ')[1]
-                    pstderr(f"[HTPT Proxy] Connection requests : {peer} | HTTPS | {host_and_port} | {ctx.channel().id()}")
-                    host, port = host_and_port.split(':')
+                    host0, port0 = host_and_port.split(':')
+                    host, port = self._transform_host_port(host0, int(port0))
+                    self._print_record(channel_id, True, peer, host0, int(port0), host, port)
                     _clients[self.raddr].proxy_socket = self._client_channel(ctx, host, int(port)).socket()
                     ctx.write(b'HTTP/1.1 200 Connection Established\r\n\r\n')
                 else:           # http proxy
                     url = content[:idx].strip().split(' ')[1]
                     parsed = urllib.parse.urlparse(url)
-                    host, port = parsed.hostname, parsed.port or 80
-                    pstderr(f"[HTTP Proxy] Connection requests : {peer} | HTTP  | {host}:{port} | {ctx.channel().id()}")
+                    host0, port0 = parsed.hostname, parsed.port or 80
+                    host, port = self._transform_host_port(host0, int(port0))
+                    self._print_record(channel_id, False, peer, host0, int(port0), host, port)
                     _clients[self.raddr].proxy_socket = self._client_channel(ctx, host, port).socket()
                     self._client.write(self._buffer)
 
@@ -616,10 +635,11 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
         super().channel_inactive(ctx)
         if hasattr(self, 'raddr'):
             c = _clients.pop(self.raddr)
-            if c:
-                pstderr(f"[HTTP Proxy] Connection closed   : {ctx.channel()}, rx: {c.pretty_rx_total()}, tx: {c.pretty_tx_total()}, duration: {c.pretty_born_time().lower()}")
-            else:
-                pstderr(f"[HTTP Proxy] Connection closed   : {ctx.channel()}")
+            if logger.isEnabledFor(logging.DEBUG):
+                if c:
+                    pstderr(f"[HTTP Proxy] Connection closed   : {ctx.channel()}, rx: {c.pretty_rx_total()}, tx: {c.pretty_tx_total()}, duration: {c.pretty_born_time().lower()}")
+                else:
+                    pstderr(f"[HTTP Proxy] Connection closed   : {ctx.channel()}")
         if self._client:
             self._client.close()
 
@@ -650,6 +670,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 @click.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
 @click.option('--alpn', is_flag=True, help='Set ALPN protocol as [h2, http/1.1]')
 @click.option('--http-proxy', is_flag=True, help='HTTP proxy mode')
+@click.option('--http-proxy-transform', '-t', type=(str, int, str, int), multiple=True, help='HTTP proxy transform(host, port, transformed_host, transformed_port)')
 @click.option('--shell-proxy', is_flag=True, help='Shell proxy mode')
 @click.option('-v', '--verbose', count=True)
 @click.option('--read-delay-millis', type=int, help='Read delay in milliseconds (only apply to TCP proxy mode)', default=0, show_default=True)
@@ -678,6 +699,7 @@ def run_proxy(
         shadow=False,
         alpn=False,
         http_proxy=False,
+        http_proxy_transform: Tuple[Tuple[str, int, str, int]] = None,
         shell_proxy=False,
         read_delay_millis=0, write_delay_millis=0,
         workers=1, proxy_workers=1,
@@ -734,9 +756,14 @@ def run_proxy(
                 client_eventloop_group,
                 content=content,
                 to_file=to_file,
+                transform=http_proxy_transform,
             ),
         )
         pstderr(f"HTTP Proxy server started listening: {local_server}:{local_port} [console:{content}, file:{to_file}] ... ")
+        if http_proxy_transform:
+            pstderr("HTTP Proxy transforms:")
+            for h0, p0, h, p in http_proxy_transform:
+                pstderr(f"  {h0}:{p0} -> {h}:{p}")
     elif shell_proxy:
         sb = ServerBootstrap(
             parant_group=EventLoopGroup(1, 'Boss'),

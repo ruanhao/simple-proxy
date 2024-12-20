@@ -47,10 +47,14 @@ Options:
   --shadow                        Disguise if incoming connection is TLS client request
   --alpn                          Set ALPN protocol as [h2, http/1.1]
   --http-proxy                    HTTP proxy mode
+  -t, --http-proxy-transform <TEXT INTEGER TEXT INTEGER>...
+                                  HTTP proxy transform(host, port, transformed_host, transformed_port)
   --shell-proxy                   Shell proxy mode
   -v, --verbose
   --read-delay-millis INTEGER     Read delay in milliseconds (only apply to TCP proxy mode)  [default: 0]
   --write-delay-millis INTEGER    Write delay in milliseconds (only apply to TCP proxy mode)  [default: 0]
+  --log-file PATH                 Log file
+  --version                       Show the version and exit.
   -h, --help                      Show this message and exit.
 ```
 
@@ -114,6 +118,8 @@ Average Read Speed:  32765.0 bytes/s, Average Write Speed: 32752.88 bytes/s
 You can set global envs *https_proxy* or *https_proxy* after http proxy server startd.
 ```commandline
 > simple-proxy --http-proxy
+
+> simple-proxy --http-proxy --http-proxy-transform www.google.com 443 man-in-middle.com 8443
 ```
 
 ### Shell Proxy
