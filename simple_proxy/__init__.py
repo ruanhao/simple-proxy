@@ -16,7 +16,6 @@ import codecs
 from collections import defaultdict
 import time
 from attrs import define, field
-import urllib
 import subprocess
 import shutil
 from typing import Optional, Tuple
@@ -32,7 +31,8 @@ from simple_proxy.utils import (
     getsockname,
     create_temp_key_cert,
     free_port,
-    set_keepalive
+    set_keepalive,
+    parse_proxy_info,
 )
 from simple_proxy.version import __version__
 
@@ -545,7 +545,13 @@ class MyHttpHandler(http.server.BaseHTTPRequestHandler):
 
 
 class HttpProxyChannelHandler(LoggingChannelHandler):
-    def __init__(self, client_eventloop_group, content=False, to_file=False, transform: Tuple[Tuple[str, int, str, int]] = None):
+    def __init__(
+            self,
+            client_eventloop_group,
+            content=False, to_file=False,
+            transform: Tuple[Tuple[str, int, str, int]] = None,
+            http_proxy_username=None, http_proxy_password=None,
+    ):
         self._client_eventloop_group = client_eventloop_group
         self._client = None
         self._negociated = False
@@ -553,6 +559,8 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
         self._content = content
         self._to_file = to_file
         self._transform = transform
+        self._http_proxy_username = http_proxy_username
+        self._http_proxy_password = http_proxy_password
 
     def _client_channel(self, ctx0, ip, port):
 
@@ -606,24 +614,28 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
             if b'\r\n\r\n' in self._buffer:
                 self._negociated = True
                 content = self._buffer.decode('ascii', errors='using_dot')
-
-                idx = content.index('HTTP')
                 peer = ctx.channel().channelinfo().peername[0]
                 channel_id = ctx.channel().id()
+                try:
+                    proxy_info = parse_proxy_info(content)
+                except Exception as e:
+                    pstderr(f"[HTTP Proxy] Parse proxy info failed: {e}")
+                    ctx.write(b'HTTP/1.1 405 Method Not Allowed\r\n\r\n')
+                    ctx.close()
+                    return
+                if self._http_proxy_username and self._http_proxy_password:
+                    if self._http_proxy_username != proxy_info.username or self._http_proxy_password != proxy_info.password:
+                        pstderr(f"[HTTP Proxy] Username or password error: {proxy_info.username} {proxy_info.password}")
+                        ctx.write(b'HTTP/1.1 407 Proxy Authentication Required\r\n\r\n')
+                        ctx.close()
+                        return
+                host, port = self._transform_host_port(proxy_info.host, proxy_info.port)
+                _clients[self.raddr].proxy_socket = self._client_channel(ctx, host, int(port)).socket()
                 if 'CONNECT' in content:  # https proxy
-                    host_and_port = content[:idx].strip().split(' ')[1]
-                    host0, port0 = host_and_port.split(':')
-                    host, port = self._transform_host_port(host0, int(port0))
-                    self._print_record(channel_id, True, peer, host0, int(port0), host, port)
-                    _clients[self.raddr].proxy_socket = self._client_channel(ctx, host, int(port)).socket()
+                    self._print_record(channel_id, True, peer, proxy_info.host, proxy_info.port, host, port)
                     ctx.write(b'HTTP/1.1 200 Connection Established\r\n\r\n')
                 else:           # http proxy
-                    url = content[:idx].strip().split(' ')[1]
-                    parsed = urllib.parse.urlparse(url)
-                    host0, port0 = parsed.hostname, parsed.port or 80
-                    host, port = self._transform_host_port(host0, int(port0))
-                    self._print_record(channel_id, False, peer, host0, int(port0), host, port)
-                    _clients[self.raddr].proxy_socket = self._client_channel(ctx, host, port).socket()
+                    self._print_record(channel_id, False, peer, proxy_info.host, proxy_info.port, host, port)
                     self._client.write(self._buffer)
 
                 self._buffer = b''
@@ -670,6 +682,8 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 @click.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
 @click.option('--alpn', is_flag=True, help='Set ALPN protocol as [h2, http/1.1]')
 @click.option('--http-proxy', is_flag=True, help='HTTP proxy mode')
+@click.option('--http-proxy-username', help='HTTP proxy username')
+@click.option('--http-proxy-password', help='HTTP proxy password')
 @click.option('--http-proxy-transform', '-t', type=(str, int, str, int), multiple=True, help='HTTP proxy transform(host, port, transformed_host, transformed_port)')
 @click.option('--shell-proxy', is_flag=True, help='Shell proxy mode')
 @click.option('-v', '--verbose', count=True)
@@ -700,6 +714,7 @@ def run_proxy(
         alpn=False,
         http_proxy=False,
         http_proxy_transform: Tuple[Tuple[str, int, str, int]] = None,
+        http_proxy_username=None, http_proxy_password=None,
         shell_proxy=False,
         read_delay_millis=0, write_delay_millis=0,
         workers=1, proxy_workers=1,
@@ -757,6 +772,8 @@ def run_proxy(
                 content=content,
                 to_file=to_file,
                 transform=http_proxy_transform,
+                http_proxy_username=http_proxy_username,
+                http_proxy_password=http_proxy_password,
             ),
         )
         pstderr(f"HTTP Proxy server started listening: {local_server}:{local_port} [console:{content}, file:{to_file}] ... ")
