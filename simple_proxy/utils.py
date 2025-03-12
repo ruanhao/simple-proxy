@@ -1,5 +1,6 @@
 import inspect
 import os
+import base64
 import platform
 import random
 import socket
@@ -14,10 +15,21 @@ from cryptography.hazmat._oid import NameOID
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from attrs import define, field
+import re
 import itertools
 
 logger = logging.getLogger(__name__)
 _counter = itertools.count()
+
+
+@define(slots=True, kw_only=True, order=True)
+class ProxyInfo():
+
+    host: str = field()
+    port: int = field()
+    username: str = field(default=None)
+    password: str = field(default=None)
 
 
 def submit_daemon_thread(func, *args, **kwargs) -> threading.Thread:
@@ -254,3 +266,36 @@ def set_keepalive(sock, after_idle_sec=60, interval_sec=60, max_fails=5):
         set_keepalive_osx(sock, after_idle_sec, interval_sec, max_fails)
     if plat == 'Windows':
         set_keepalive_win(sock, after_idle_sec, interval_sec, max_fails)
+
+
+def parse_proxy_info(request_headers: str) -> ProxyInfo:
+    # for CONNECT
+    if request_headers.startswith('CONNECT'):  # https proxy
+        match = re.search(r'CONNECT\s+([\w\.-]+):(\d+)\s+HTTP/.+\r\n', request_headers, re.IGNORECASE)
+        if not match:
+            raise ValueError("Invalid CONNECT request format")
+        host, port = match.groups()
+        port = int(port)
+    else:                       # http proxy
+        match_with_port = re.search(r'Host:\s+([\w\.-]+):(\d+)\r\n', request_headers, re.IGNORECASE)
+        match_without_port = re.search(r'Host:\s+([\w\.-]+)\r\n', request_headers, re.IGNORECASE)
+        if match_with_port:
+            host, port = match_with_port.groups()
+            port = int(port)
+        elif match_without_port:
+            host = match_without_port.group(1)
+            port = 80
+        else:
+            raise ValueError("Invalid Host header format")
+
+    # for Proxy-Authorization
+    auth_match = re.search(r'Proxy-Authorization:\s+Basic\s+([\w=+/]+)', request_headers, re.IGNORECASE)
+    username, password = None, None
+    if auth_match:
+        try:
+            auth_decoded = base64.b64decode(auth_match.group(1)).decode('utf-8')
+        except Exception as e:
+            raise ValueError(f"Invalid Proxy-Authorization format: {e}")
+        username, password = auth_decoded.split(':', 1)
+
+    return ProxyInfo(host=host, port=port, username=username, password=password)
