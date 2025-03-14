@@ -5,12 +5,15 @@
 
 # rm -rf dist; python -m build . && twine upload -u ruanhao dist/*
 
+set -o errexit
+
 tag=`date "+%Y%m%d%H%M%S"`
-pytest --html=report-$tag.html --self-contained-html || exit 1
+pytest --html=report-$tag.html --self-contained-html
 
 tempdir="$(mktemp -d)"
 file "$tempdir"
-python setup.py sdist -d "$tempdir" bdist_wheel -d "$tempdir"
+# python setup.py sdist -d "$tempdir" bdist_wheel -d "$tempdir"
+python -m build --outdir "$tempdir"
 echo "tempdir: $tempdir"
 if [[ -n $1 ]]; then
     twine upload $tempdir/*
