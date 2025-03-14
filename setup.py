@@ -11,7 +11,7 @@ __version__ = None
 exec(open("simple_proxy/version.py").read())
 
 config = {
-    'name': 'simple-proxy',
+    'name': 'simple_proxy',
     'url': 'https://github.com/ruanhao/simple-proxy',
     'license': 'MIT',
     "long_description": long_description,
