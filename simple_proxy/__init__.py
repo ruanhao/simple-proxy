@@ -33,6 +33,7 @@ from simple_proxy.utils import (
     free_port,
     set_keepalive,
     parse_proxy_info,
+    trim_proxy_info,
 )
 from simple_proxy.version import __version__
 
@@ -636,7 +637,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
                     ctx.write(b'HTTP/1.1 200 Connection Established\r\n\r\n')
                 else:           # http proxy
                     self._print_record(channel_id, False, peer, proxy_info.host, proxy_info.port, host, port)
-                    self._client.write(self._buffer)
+                    self._client.write(trim_proxy_info(self._buffer))
 
                 self._buffer = b''
 

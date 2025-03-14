@@ -268,6 +268,16 @@ def set_keepalive(sock, after_idle_sec=60, interval_sec=60, max_fails=5):
         set_keepalive_win(sock, after_idle_sec, interval_sec, max_fails)
 
 
+def trim_proxy_info(request_headers_bytes: bytes) -> bytes:
+    if not request_headers_bytes:
+        return request_headers_bytes
+    # trimmed = re.sub(b'Proxy-Connection: keep-alive\r\n', b'', request_headers_bytes, flags=re.IGNORECASE)
+    # trimmed = re.sub(b'Proxy-Authorization: Basic [a-zA-Z0-9+/=]+\r\n', b'', trimmed, flags=re.IGNORECASE)
+    trimmed = request_headers_bytes
+    trimmed = re.sub(b'Proxy-.*\r\n', b'', trimmed, flags=re.IGNORECASE)
+    return trimmed
+
+
 def parse_proxy_info(request_headers: str) -> ProxyInfo:
     # for CONNECT
     if request_headers.startswith('CONNECT'):  # https proxy
