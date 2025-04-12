@@ -13,7 +13,7 @@ pytest --html=report-$tag.html --self-contained-html
 tempdir="$(mktemp -d)"
 file "$tempdir"
 # python setup.py sdist -d "$tempdir" bdist_wheel -d "$tempdir"
-python -m build --outdir "$tempdir"
+python -m build --sdist --wheel --outdir "$tempdir"
 echo "tempdir: $tempdir"
 if [[ -n $1 ]]; then
     twine upload $tempdir/*
