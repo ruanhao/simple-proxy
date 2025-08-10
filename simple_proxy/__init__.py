@@ -533,6 +533,32 @@ class ProxyChannelHandler(LoggingChannelHandler):
             self._client.close()
 
 
+class EchoChannelHandler(ProxyChannelHandler):
+
+    def __init(
+            self,
+            client_eventloop_group,
+            tls,
+    ):
+        super().__init__(None, None, client_eventloop_group, tls=tls)
+
+    def channel_read(self, ctx, bytebuf):
+        if not bytebuf:
+            return
+        src_ip, src_port = ctx.channel().channelinfo().peername
+        raddr = (src_ip, src_port)
+        client = _clients.get(raddr)
+        if client:
+            client.read(len(bytebuf))
+
+        ctx.channel().write(bytebuf)
+        if client:
+            client.write(len(bytebuf))
+
+    def _create_client(self, ctx, bytebuf: Optional[bytes]):
+        pass
+
+
 class MyHttpHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # no log
@@ -680,6 +706,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 @click.option('--disguise-tls-port', '-dtp', type=int, help='Disguise TLS port', default=443, show_default=True)
 @click.option('--white-list', '-wl', help='IP White list for incoming connections (comma separated)')
 @click.option('--run-mock-tls-server', is_flag=True, help='Run mock TLS server')
+@click.option('--as-echo-server', '-e', is_flag=True, help='Run as Echo Server')
 @click.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
 @click.option('--alpn', is_flag=True, help='Set ALPN protocol as [h2, http/1.1]')
 @click.option('--http-proxy', is_flag=True, help='HTTP proxy mode')
@@ -719,6 +746,7 @@ def run_proxy(
         shell_proxy=False,
         read_delay_millis=0, write_delay_millis=0,
         workers=1, proxy_workers=1,
+        as_echo_server=False,
 ):
     if shadow and not (disguise_tls_ip or run_mock_tls_server):
         pfatal("'--shadow' is not applicable if '--disguise-tls-ip/-dti' or '--run-mock-tls-server' is not specified!")
@@ -791,6 +819,19 @@ def run_proxy(
             keyfile=kf,
         )
         pstderr(f"Shell proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} ...")
+    elif as_echo_server:
+        sb = ServerBootstrap(
+            parant_group=EventLoopGroup(1, 'Boss'),
+            child_group=EventLoopGroup(workers, 'Worker'),
+            child_handler_initializer=lambda: EchoChannelHandler(
+                None, None,
+                client_eventloop_group,
+                tls=tls,
+            ),
+            certfile=cf,
+            keyfile=kf,
+        )
+        pstderr(f"Echo server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} ...")
     else:
         sb = ServerBootstrap(
             parant_group=EventLoopGroup(1, 'Boss'),
