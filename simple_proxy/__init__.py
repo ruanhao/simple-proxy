@@ -8,7 +8,7 @@ import logging
 import codecs
 import subprocess
 import shutil
-from typing import Optional, Tuple
+from typing import Tuple
 
 from simple_proxy.handler.proxy_channel_handler import ProxyChannelHandler
 
@@ -42,6 +42,7 @@ from simple_proxy.utils.stringutils import (
 )
 from simple_proxy.utils.logutils import pstderr, pfatal, setup_logging
 from simple_proxy.version import __version__
+from .handler.echo_channel_handler import EchoChannelHandler
 
 logger = logging.getLogger(__name__)
 
@@ -154,32 +155,6 @@ class ShellChannelHandler(LoggingChannelHandler):
         self._process.kill()
         os.close(self._shell_stdin_fd)
         pstderr(f"{ctx.channel()} Shell terminated: {self._process.pid}")
-
-
-class EchoChannelHandler(ProxyChannelHandler):
-
-    def __init(
-            self,
-            client_eventloop_group,
-            tls,
-    ):
-        super().__init__(None, None, client_eventloop_group, tls=tls)
-
-    def channel_read(self, ctx, bytebuf):
-        if not bytebuf:
-            return
-        src_ip, src_port = ctx.channel().channelinfo().peername
-        raddr = (src_ip, src_port)
-        client = get_client_or_none(raddr)
-        if client:
-            client.read(len(bytebuf))
-
-        ctx.channel().write(bytebuf)
-        if client:
-            client.write(len(bytebuf))
-
-    def _create_client(self, ctx, bytebuf: Optional[bytes]):
-        pass
 
 
 class MyHttpHandler(http.server.BaseHTTPRequestHandler):
