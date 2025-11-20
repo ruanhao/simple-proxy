@@ -28,8 +28,10 @@ logger = logging.getLogger(__name__)
 # _local_peer_to_target_mapping = LimitedDict(1024)
 _local_peer_to_target_mapping: dict[str, str] = dict()
 
+
 def get_local_peer_to_target_mapping() -> dict[str, str]:
     return _local_peer_to_target_mapping
+
 
 class HttpProxyChannelHandler(LoggingChannelHandler):
     def __init__(
@@ -37,7 +39,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
             client_eventloop_group,
             content=False, to_file=False,
             transform: tuple[tuple[str, int, str, int]] = None,
-            http_proxy_username=None, http_proxy_password=None,
+            proxy_username=None, proxy_password=None,
     ):
         self._client_eventloop_group = client_eventloop_group
         self._client = None
@@ -46,8 +48,8 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
         self._content = content
         self._to_file = to_file
         self._transform = transform
-        self._http_proxy_username = http_proxy_username
-        self._http_proxy_password = http_proxy_password
+        self._proxy_username = proxy_username
+        self._proxy_password = proxy_password
         self.raddr = None
 
     def _client_channel(self, ctx0, ip, port):
@@ -113,8 +115,8 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
                     ctx.write(b'HTTP/1.1 405 Method Not Allowed\r\n\r\n')
                     ctx.close()
                     return
-                if self._http_proxy_username and self._http_proxy_password:
-                    if self._http_proxy_username != proxy_info.username or self._http_proxy_password != proxy_info.password:
+                if self._proxy_username and self._proxy_password:
+                    if self._proxy_username != proxy_info.username or self._proxy_password != proxy_info.password:
                         pstderr(f"[HTTP Proxy] Username or password error: {proxy_info.username} {proxy_info.password}")
                         ctx.write(b'HTTP/1.1 407 Proxy Authentication Required\r\n\r\n')
                         ctx.close()
