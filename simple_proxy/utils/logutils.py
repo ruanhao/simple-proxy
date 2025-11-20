@@ -2,6 +2,9 @@ import inspect
 import logging
 import sys
 from pathlib import Path
+import os
+import traceback
+from functools import wraps
 
 _logger = logging.getLogger(__name__)
 _stderr = False
@@ -51,3 +54,31 @@ def setup_logging(log_file: Path | None, level=logging.INFO):
         format='%(asctime)s.%(msecs)03d - %(name)s - %(levelname)s - %(threadName)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
+
+def _all_args_repr(args, kw):
+    try:
+        args_repr = [f"<{len(arg)} bytes>" if isinstance(arg, (bytes, bytearray)) else repr(arg) for arg in args]
+        kws = []
+        for k, v in kw.items():
+            if isinstance(v, (bytes, bytearray)):
+                kws.append(f"{k}=<{len(v)} bytes>")
+            else:
+                kws.append(f"{k}={repr(v)}")
+        return ', '.join(args_repr + kws)
+    except (Exception,):
+        return "(?)"
+
+def sneaky():
+
+    def decorate(func):
+        @wraps(func)
+        def wrapper(*args, **kw):
+            all_args = _all_args_repr(args, kw)
+            try:
+                return func(*args, **kw)
+            except Exception as e:
+                emsg = f"[{e}] sneaky call: {func.__name__}({all_args})"
+                _get_logger().exception(emsg)
+                print(emsg, traceback.format_exc(), file=sys.stderr, sep=os.linesep, flush=True)
+        return wrapper
+    return decorate

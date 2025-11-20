@@ -19,6 +19,7 @@ from .netutils import (
 )
 from .osutils import from_cwd, submit_daemon_thread
 from .certutils import create_temp_key_cert
+from .tlsutils import alpn_ssl_context_cb
 
 __all__ = [
     'parse_proxy_info',
@@ -39,4 +40,5 @@ __all__ = [
     'from_cwd',
     'create_temp_key_cert',
     "submit_daemon_thread",
+    'alpn_ssl_context_cb',
 ]

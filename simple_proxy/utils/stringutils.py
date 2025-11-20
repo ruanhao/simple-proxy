@@ -1,5 +1,6 @@
 import random
 import re
+from .logutils import _get_logger
 
 _TIME_DURATION_UNITS = (
     ('W', 60 * 60 * 24 * 7 * 1000),
@@ -58,3 +59,11 @@ def pretty_duration(seconds: float) -> str:
         if amount > 0:
             parts.append('{}{}'.format(amount, unit))
     return ','.join(parts)
+
+def check_patterns(patterns, s):
+    for pattern in patterns:
+        if re.search(pattern, s):
+            _get_logger().debug(f"pattern {pattern} matched {s}")
+            return True
+    _get_logger().warning(f"no pattern matched {s}")
+    return False
