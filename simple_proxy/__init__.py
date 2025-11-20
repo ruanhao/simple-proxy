@@ -10,7 +10,7 @@ import subprocess
 import shutil
 from typing import Optional, Tuple
 
-from simple_proxy.handler.tcp_proxy_channel_handler import ProxyChannelHandler
+from simple_proxy.handler.proxy_channel_handler import ProxyChannelHandler
 
 from .clients import (
     TcpProxyClient,
@@ -491,3 +491,8 @@ def run_proxy(
 
         signal.signal(signal.SIGINT, _signal_handler)
     sb.bind(address=local_server, port=local_port).close_future().sync()
+
+# for setup.py entry point
+def _run():
+    enable_stderr()
+    _cli()

@@ -5,11 +5,13 @@ from .stringutils import (
     pretty_speed,
     pattern_to_regex,
     pretty_duration,
+    check_ip_patterns,
 )
 from .logutils import (
     setup_logging,
     pfatal, pstderr,
     enable_stderr,
+    sneaky,
 )
 from .netutils import (
     getpeername,
@@ -41,4 +43,5 @@ __all__ = [
     'create_temp_key_cert',
     "submit_daemon_thread",
     'alpn_ssl_context_cb',
+    'check_ip_patterns',
 ]

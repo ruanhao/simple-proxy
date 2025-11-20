@@ -1,7 +1,8 @@
-from simple_proxy.utils import setup_logging, pfatal, pstderr, enable_stderr
+from simple_proxy.utils import setup_logging, pfatal, pstderr, enable_stderr, sneaky
 import logging
 import pytest
 
+logger = logging.getLogger(__name__)
 
 def test_setup_logging_case_without_logfile(mocker):
     basicConfig_mocker = mocker.patch('simple_proxy.utils.logutils.logging.basicConfig')  # noqa
@@ -39,3 +40,14 @@ def test_enable_stderr():
     logutils._stderr = False
     enable_stderr()
     assert logutils._stderr is True
+
+
+def test_sneaky(caplog):
+
+    @sneaky()
+    def __dummy_function(x, b, y=2, z=None):
+        logger.info("Inside dummy function, x: %s, b: %s, y: %s", x, b, y)
+        raise ValueError("An error occurred in dummy function")
+
+    __dummy_function(1, b'abc', y=3, z=b'abc')  # Should not raise an exception
+    assert "sneaky call: __dummy_function(1, <3 bytes>, y=3, z=<3 bytes>)" in caplog.text
