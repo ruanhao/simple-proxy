@@ -2,7 +2,15 @@ import socket
 import time
 from attrs import define, field
 from .utils import pretty_duration, pretty_speed, pretty_bytes
+from collections import defaultdict
+import click
+from .utils.logutils import sneaky, pstderr
+from .utils.osutils import from_cwd, submit_daemon_thread
+from .utils.netutils import getpeername, getsockname
+from py_netty.channel import NioSocketChannel
+from datetime import datetime
 
+_monitor = True
 
 @define(slots=True, kw_only=True, order=True)
 class TcpProxyClient:
@@ -77,3 +85,108 @@ class TcpProxyClient:
             self.wbps = 0
             self.cumulative_write_time = 0
             self.cumulative_write_bytes = 0
+
+
+_clients = defaultdict(TcpProxyClient)
+
+
+@sneaky()
+def handle_data(
+        buffer: bytes,
+        direction: bool,
+        src: NioSocketChannel, dst: NioSocketChannel,
+        print_content: bool, to_file: bool
+) -> bytes:
+    src_ip, src_port = src.channelinfo().peername
+    dst_ip, dst_port = dst.channelinfo().peername
+
+    raddr = (src_ip, src_port) if direction else (dst_ip, dst_port)
+
+    if buffer:
+        client = _clients.get(raddr)
+        if client:
+            if direction:
+                client.read(len(buffer))
+            else:
+                client.write(len(buffer))
+    else:                       # EOF
+        return buffer
+
+    if not print_content and not to_file:
+        return buffer
+    content = buffer.decode('ascii', errors='using_dot')
+    src_ip = src_ip.replace(':', '_')
+    dst_ip = dst_ip.replace(':', '_')
+    filename = ('L' if direction else 'R') + f'_{src_ip}_{src_port}_{dst_ip}_{dst_port}.log'
+    if to_file:
+        with from_cwd('__tcpflow__', filename).open('a') as f:
+            f.write(content)
+    if print_content:
+        click.secho(content, fg='green' if direction else 'yellow')
+    return buffer
+
+def get_clients() -> dict[tuple[str, int], TcpProxyClient]:
+    return _clients
+
+def get_client_or_none(raddr: tuple[str, int]) -> TcpProxyClient | None:
+    return _clients.get(raddr)
+
+def get_client_or_create(raddr: tuple[str, int]) -> TcpProxyClient:
+    return _clients[raddr]
+
+def pop_client(raddr: tuple[str, int]) -> TcpProxyClient | None:
+    return _clients.pop(raddr, None)
+
+
+
+def _clients_check(interval: int = 5):
+    ever = False
+    zzz = 0
+    rounds = 0
+    while True and _monitor:
+        clients_snapshot = _clients.copy()
+        items = list(clients_snapshot.items())
+        items.sort(key=lambda x: x[1].born_time)
+        total = len(clients_snapshot)
+        if total:
+            rounds += 1
+            pstderr(f'{datetime.now()} (total:{total}, rounds:{rounds})'.center(100, '-'))
+            ever = True
+            zzz = 0
+        else:
+            if zzz % 60 == 0 and ever:
+                rounds += 1
+                pstderr(f"{datetime.now()} No client connected (rounds:{rounds})".center(100, '-'))
+            zzz += 1
+
+        count = 1
+        for address, client in items:
+            client.check()
+            # ip, port = address
+            pspeed = client.pretty_rx_speed()
+            ptotal = client.pretty_rx_total()
+            pwspeed = client.pretty_tx_speed()
+            pwtotal = client.pretty_tx_total()
+            duration = client.pretty_born_time().lower()
+            local_socket = client.local_socket
+            proxy_socket = client.proxy_socket
+            from_ = getpeername(local_socket)
+            proxy = getsockname(proxy_socket)
+            pstderr(f"[{count:3}] | {from_:21} | {proxy:21} | rx:{pspeed:10} tx:{pwspeed:10} | cum(rx):{ptotal:10} cum(tx):{pwtotal:10} | {duration}")
+            count += 1
+        if total:
+            average_speed = round(sum([c.rbps for c in clients_snapshot.values()]) / total, 2)
+            average_wspeed = round(sum([c.wbps for c in clients_snapshot.values()]) / total, 2)
+            r = pretty_bytes(TcpProxyClient.global_rx)
+            t = pretty_bytes(TcpProxyClient.global_tx)
+            max_rx = pretty_speed(TcpProxyClient.max_rx)
+            max_tx = pretty_speed(TcpProxyClient.max_tx)
+            pstderr(f"Average Rx:{average_speed} bytes/s, Average Tx:{average_wspeed} bytes/s, Ever max Rx:{max_rx}, Ever max Tx:{max_tx}, Total Rx:{r}, Total Tx:{t}")
+        time.sleep(interval)
+
+def spawn_clients_monitor(interval: int = 5):
+    submit_daemon_thread(_clients_check, interval)
+
+def stop_clients_monitor():
+    global _monitor
+    _monitor = False

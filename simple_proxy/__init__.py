@@ -1,24 +1,22 @@
 import http.server
 import ssl
-from functools import wraps
 from py_netty.handler import LoggingChannelHandler
 from py_netty import Bootstrap, ServerBootstrap, EventLoopGroup
-from py_netty.channel import NioSocketChannel
-import traceback
-import sys
 import os
 import click
-from datetime import datetime
 import logging
-import re
 import codecs
-from collections import defaultdict
-import time
 import subprocess
 import shutil
 from typing import Optional, Tuple
 
-from .clients import TcpProxyClient
+from simple_proxy.handler.tcp_proxy_channel_handler import ProxyChannelHandler
+
+from .clients import (
+    TcpProxyClient,
+    get_client_or_none, get_client_or_create, pop_client, handle_data,
+    spawn_clients_monitor, stop_clients_monitor,
+)
 
 from simple_proxy.utils import (
     submit_daemon_thread,
@@ -30,6 +28,7 @@ from simple_proxy.utils import (
     free_port,
     set_keepalive,
     enable_stderr,
+    alpn_ssl_context_cb,
 )
 from simple_proxy.utils.proxyutils import (
     parse_proxy_info,
@@ -46,147 +45,7 @@ from simple_proxy.version import __version__
 
 logger = logging.getLogger(__name__)
 
-
-def _alpn_ssl_context_cb(ssl_ctx):
-    ssl_ctx.set_alpn_protocols(["h2", "http/1.1"])
-
-
 __ALL__ = ['run_proxy']
-
-
-_speed_monitor = True
-
-_clients = defaultdict(TcpProxyClient)
-
-
-def _check_patterns(patterns, s):
-    for pattern in patterns:
-        if re.search(pattern, s):
-            logger.debug(f"pattern {pattern} matched {s}")
-            return True
-    logger.warning(f"no pattern matched {s}")
-    return False
-
-
-def _repr(obj):
-    if isinstance(obj, (bytes, bytearray)):
-        return f"<<{len(obj)} bytes>>"
-    return repr(obj)
-
-
-def _all_args_repr(args, kw):
-    try:
-        args_repr = [f"<{len(arg)} bytes>" if isinstance(arg, (bytes, bytearray)) else repr(arg) for arg in args]
-        kws = []
-        for k, v in kw.items():
-            if isinstance(v, (bytes, bytearray)):
-                kws.append(f"{k}=<{len(v)} bytes>")
-            else:
-                kws.append(f"{k}={repr(v)}")
-        return ', '.join(args_repr + kws)
-    except (Exception,):
-        return "(?)"
-
-
-def sneaky():
-
-    def decorate(func):
-        @wraps(func)
-        def wrapper(*args, **kw):
-            all_args = _all_args_repr(args, kw)
-            try:
-                return func(*args, **kw)
-            except Exception as e:
-                emsg = f"[{e}] sneaky call: {func.__name__}({all_args})"
-                if logger:
-                    logger.exception(emsg)
-                print(emsg, traceback.format_exc(), file=sys.stderr, sep=os.linesep, flush=True)
-        return wrapper
-    return decorate
-
-
-@sneaky()
-def _handle(buffer: bytes, direction: bool, src: NioSocketChannel, dst: NioSocketChannel, print_content: bool, to_file: bool):
-    # try:
-    #     src_ip, src_port = src.getpeername()[:2]
-    #     dst_ip, dst_port = dst.getpeername()[:2]
-    # except OSError:
-    #     return buffer
-
-    src_ip, src_port = src.channelinfo().peername
-    dst_ip, dst_port = dst.channelinfo().peername
-
-    raddr = (src_ip, src_port) if direction else (dst_ip, dst_port)
-
-    if buffer:
-        client = _clients.get(raddr)
-        if client:
-            if direction:
-                client.read(len(buffer))
-            else:
-                client.write(len(buffer))
-    else:                       # EOF
-        return buffer
-
-    if not print_content and not to_file:
-        return buffer
-    content = buffer.decode('ascii', errors='using_dot')
-    src_ip = src_ip.replace(':', '_')
-    dst_ip = dst_ip.replace(':', '_')
-    filename = ('L' if direction else 'R') + f'_{src_ip}_{src_port}_{dst_ip}_{dst_port}.log'
-    if to_file:
-        with from_cwd('__tcpflow__', filename).open('a') as f:
-            f.write(content)
-    if print_content:
-        click.secho(content, fg='green' if direction else 'yellow')
-    return buffer
-
-
-def _clients_check(interval):
-    ever = False
-    zzz = 0
-    rounds = 0
-    while True and _speed_monitor:
-        clients_snapshot = _clients.copy()
-        items = list(clients_snapshot.items())
-        items.sort(key=lambda x: x[1].born_time)
-        total = len(clients_snapshot)
-        if total:
-            rounds += 1
-            pstderr(f'{datetime.now()} (total:{total}, rounds:{rounds})'.center(100, '-'))
-            ever = True
-            zzz = 0
-        else:
-            if zzz % 60 == 0 and ever:
-                rounds += 1
-                pstderr(f"{datetime.now()} No client connected (rounds:{rounds})".center(100, '-'))
-            zzz += 1
-
-        count = 1
-        for address, client in items:
-            client.check()
-            # ip, port = address
-            pspeed = client.pretty_rx_speed()
-            ptotal = client.pretty_rx_total()
-            pwspeed = client.pretty_tx_speed()
-            pwtotal = client.pretty_tx_total()
-            duration = client.pretty_born_time().lower()
-            local_socket = client.local_socket
-            proxy_socket = client.proxy_socket
-            from_ = getpeername(local_socket)
-            proxy = getsockname(proxy_socket)
-            pstderr(f"[{count:3}] | {from_:21} | {proxy:21} | rx:{pspeed:10} tx:{pwspeed:10} | cum(rx):{ptotal:10} cum(tx):{pwtotal:10} | {duration}")
-            count += 1
-        if total:
-            average_speed = round(sum([c.rbps for c in clients_snapshot.values()]) / total, 2)
-            average_wspeed = round(sum([c.wbps for c in clients_snapshot.values()]) / total, 2)
-            r = pretty_bytes(TcpProxyClient.global_rx)
-            t = pretty_bytes(TcpProxyClient.global_tx)
-            max_rx = pretty_speed(TcpProxyClient.max_rx)
-            max_tx = pretty_speed(TcpProxyClient.max_tx)
-            pstderr(f"Average Rx:{average_speed} bytes/s, Average Tx:{average_wspeed} bytes/s, Ever max Rx:{max_rx}, Ever max Tx:{max_tx}, Total Rx:{r}, Total Tx:{t}")
-        time.sleep(interval)
-
 
 class ShellChannelHandler(LoggingChannelHandler):
 
@@ -201,7 +60,7 @@ class ShellChannelHandler(LoggingChannelHandler):
                     return
                 logger.debug(f"{ctx.channel()} Read {len(data)} bytes from fd {fd}")
                 ctx.write(data)
-                c = _clients.get(self.raddr)
+                c = get_client_or_none(self.raddr)
                 if c:
                     c.write(len(data))
             except Exception as e:
@@ -271,7 +130,7 @@ class ShellChannelHandler(LoggingChannelHandler):
         super().channel_active(ctx)
         local_socket = ctx.channel().socket()
         self.raddr = local_socket.getpeername()
-        _clients[self.raddr].local_socket = local_socket
+        get_client_or_create(self.raddr).local_socket = local_socket
 
         if os.name == 'nt':
             self._setup_windows_shell(ctx)
@@ -283,147 +142,18 @@ class ShellChannelHandler(LoggingChannelHandler):
     def channel_read(self, ctx, bytebuf):
         super().channel_read(ctx, bytebuf)
         if hasattr(self, 'raddr'):
-            _clients[self.raddr].read(len(bytebuf))
+            get_client_or_create(self.raddr).read(len(bytebuf))
         os.write(self._shell_stdin_fd, bytebuf)
 
     def channel_inactive(self, ctx):
         super().channel_inactive(ctx)
 
-        c = _clients.pop(self.raddr)
+        c = pop_client(self.raddr)
         pstderr(f"{ctx.channel()} Connection closed, rx: {c.pretty_rx_total()}, tx: {c.pretty_tx_total()}, duration: {c.pretty_born_time().lower()}")
 
         self._process.kill()
         os.close(self._shell_stdin_fd)
         pstderr(f"{ctx.channel()} Shell terminated: {self._process.pid}")
-
-
-class ProxyChannelHandler(LoggingChannelHandler):
-    def __init__(
-            self,
-            remote_host, remote_port,
-            client_eventloop_group,
-            tls=False, content=False, to_file=False,
-            disguise_tls_ip=None, disguise_tls_port=None,
-            white_list=None,
-            shadow=False,
-            alpn=False,
-            read_delay_millis=0,
-            write_delay_millis=0,
-    ):
-        self._remote_host = remote_host
-        self._remote_port = remote_port
-        self._client_eventloop_group = client_eventloop_group
-        self._tls = tls
-        self._client = None
-        self._content = content
-        self._to_file = to_file
-
-        self._disguise_tls_ip = disguise_tls_ip
-        self._disguise_tls_port = disguise_tls_port
-        self._white_list = white_list
-        self._shadow = shadow
-        self._alpn = alpn
-        self._read_delay_millis = read_delay_millis
-        self._write_delay_millis = write_delay_millis
-
-    def _client_channel(self, ctx0, ip, port):
-
-        class _ChannelHandler(LoggingChannelHandler):
-
-            def channel_read(this, ctx, bytebuf):
-                _handle(bytebuf, False, ctx.channel(), ctx0.channel(), self._content, self._to_file)
-                if self._read_delay_millis > 0:
-                    time.sleep(self._read_delay_millis / 1000)
-                ctx0.write(bytebuf)
-
-            def channel_writability_changed(this, ctx) -> None:
-                writable = ctx.channel().is_writable()
-                if not writable:
-                    this._unwritable_seconds = time.perf_counter()
-                    logger.warning(f"{ctx0.channel()} client(proxy) writability changed: {writable}")
-                else:
-                    recovery_time_seconds = time.perf_counter() - this._unwritable_seconds
-                    logger.warning(f"{ctx0.channel()} client(proxy) writability changed: {writable} ({recovery_time_seconds:.2f}s)")
-                ctx0.channel().set_auto_read(ctx.channel().is_writable())
-
-            def channel_inactive(this, ctx):
-                super().channel_inactive(ctx)
-                ctx0.close()
-
-        if self._client is None:
-            self._client = Bootstrap(
-                eventloop_group=self._client_eventloop_group,
-                handler_initializer=_ChannelHandler,
-                tls=self._tls,
-                verify=False,
-                ssl_context_cb=_alpn_ssl_context_cb if self._alpn else None,
-            ).connect(ip, port, True).sync().channel()
-            set_keepalive(self._client.socket())
-        return self._client
-
-    def channel_writability_changed(self, ctx) -> None:
-        writable = ctx.channel().is_writable()
-        if not writable:
-            self._unwritable_seconds = time.perf_counter()
-            logger.warning(f"{ctx.channel()} channel writability changed: {writable}")
-        else:
-            recovery_time_seconds = time.perf_counter() - self._unwritable_seconds
-            logger.warning(f"{ctx.channel()} channel writability changed: {writable} ({recovery_time_seconds:.2f}s)")
-        self._client.set_auto_read(ctx.channel().is_writable())
-
-    def exception_caught(self, ctx, exception):
-        super().exception_caught(ctx, exception)
-        ctx.close()
-
-    def channel_active(self, ctx):
-        super().channel_active(ctx)
-        local_socket = ctx.channel().socket()
-        set_keepalive(local_socket)
-        self.raddr = local_socket.getpeername()
-        _clients[self.raddr].local_socket = local_socket
-        pstderr(f"Connection opened: {ctx.channel()}")
-        self._create_client(ctx, None)
-
-    def _create_client(self, ctx, bytebuf: Optional[bytes]):
-        if self._client:
-            return
-
-        if self._shadow and self._disguise_tls_ip and bytebuf is None:
-            # wait for the first packet
-            return
-
-        if self._shadow and self._disguise_tls_ip and bytebuf[0:2] == b'\x16\x03':
-            pstderr(f"Malicious TLS visitor: {ctx.channel()}")
-            self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
-        elif self._white_list and not _check_patterns(self._white_list, ctx.channel().socket().getpeername()[0]):
-            pstderr(f"Malicious visitor: {ctx.channel()}")
-            if self._disguise_tls_ip and self._disguise_tls_port:
-                self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
-            else:
-                ctx.close()
-                return
-        else:
-            self._client_channel(ctx, self._remote_host, self._remote_port)
-        _clients[self.raddr].proxy_socket = self._client.socket()
-
-    def channel_read(self, ctx, bytebuf):
-        super().channel_read(ctx, bytebuf)
-        self._create_client(ctx, bytebuf)
-        _handle(bytebuf, True, ctx.channel(), self._client, self._content, self._to_file)
-        if self._write_delay_millis > 0:
-            time.sleep(self._write_delay_millis / 1000)
-        self._client.write(bytebuf)
-
-    def channel_inactive(self, ctx):
-        super().channel_inactive(ctx)
-        if hasattr(self, 'raddr'):
-            c = _clients.pop(self.raddr)
-            if c:
-                pstderr(f"Connection closed: {ctx.channel()}, rx: {c.pretty_rx_total()}, tx: {c.pretty_tx_total()}, duration: {c.pretty_born_time().lower()}")
-            else:
-                pstderr(f"Connection closed: {ctx.channel()}")
-        if self._client:
-            self._client.close()
 
 
 class EchoChannelHandler(ProxyChannelHandler):
@@ -440,7 +170,7 @@ class EchoChannelHandler(ProxyChannelHandler):
             return
         src_ip, src_port = ctx.channel().channelinfo().peername
         raddr = (src_ip, src_port)
-        client = _clients.get(raddr)
+        client = get_client_or_none(raddr)
         if client:
             client.read(len(bytebuf))
 
@@ -474,20 +204,21 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
     ):
         self._client_eventloop_group = client_eventloop_group
         self._client = None
-        self._negociated = False
+        self._negotiated = False
         self._buffer = b''
         self._content = content
         self._to_file = to_file
         self._transform = transform
         self._http_proxy_username = http_proxy_username
         self._http_proxy_password = http_proxy_password
+        self.raddr = None
 
     def _client_channel(self, ctx0, ip, port):
 
         class _ChannelHandler(LoggingChannelHandler):
 
             def channel_read(this, ctx, bytebuf):
-                _handle(bytebuf, False, ctx.channel(), ctx0.channel(), self._content, self._to_file)
+                handle_data(bytebuf, False, ctx.channel(), ctx0.channel(), self._content, self._to_file)
                 ctx0.write(bytebuf)
 
             def channel_inactive(this, ctx):
@@ -508,7 +239,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
         local_socket = ctx.channel().socket()
         set_keepalive(local_socket)
         self.raddr = local_socket.getpeername()
-        _clients[self.raddr].local_socket = local_socket
+        get_client_or_create(self.raddr).local_socket = local_socket
         if logger.isEnabledFor(logging.DEBUG):
             pstderr(f"[HTTP PROXY] Connection opened   : {ctx.channel()}")
 
@@ -527,12 +258,12 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
             pstderr(f"[HTTP Proxy] Connection requests : {proto} | {channel_id} | {peer} | {host0}:{port0} > {host}:{port}")
 
     def channel_read(self, ctx, bytebuf):
-        if self._negociated:
+        if self._negotiated:
             self._client.write(bytebuf)
         else:
             self._buffer += bytebuf
             if b'\r\n\r\n' in self._buffer:
-                self._negociated = True
+                self._negotiated = True
                 content = self._buffer.decode('ascii', errors='using_dot')
                 peer = ctx.channel().channelinfo().peername[0]
                 channel_id = ctx.channel().id()
@@ -550,7 +281,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
                         ctx.close()
                         return
                 host, port = self._transform_host_port(proxy_info.host, proxy_info.port)
-                _clients[self.raddr].proxy_socket = self._client_channel(ctx, host, int(port)).socket()
+                get_client_or_create(self.raddr).proxy_socket = self._client_channel(ctx, host, int(port)).socket()
                 if 'CONNECT' in content:  # https proxy
                     self._print_record(channel_id, True, peer, proxy_info.host, proxy_info.port, host, port)
                     ctx.write(b'HTTP/1.1 200 Connection Established\r\n\r\n')
@@ -561,12 +292,12 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
                 self._buffer = b''
 
         if self._client:
-            _handle(bytebuf, True, ctx.channel(), self._client, self._content, self._to_file)
+            handle_data(bytebuf, True, ctx.channel(), self._client, self._content, self._to_file)
 
     def channel_inactive(self, ctx):
         super().channel_inactive(ctx)
         if hasattr(self, 'raddr'):
-            c = _clients.pop(self.raddr)
+            c = pop_client(self.raddr)
             if logger.isEnabledFor(logging.DEBUG):
                 if c:
                     pstderr(f"[HTTP Proxy] Connection closed   : {ctx.channel()}, rx: {c.pretty_rx_total()}, tx: {c.pretty_tx_total()}, duration: {c.pretty_born_time().lower()}")
@@ -675,7 +406,7 @@ def run_proxy(
         disguise_tls_ip = 'localhost'
         disguise_tls_port = free_port()
         server_address = (disguise_tls_ip, disguise_tls_port)
-        kf_mock, cf_mock = create_temp_key_cert(True)
+        kf_mock, cf_mock = create_temp_key_cert()
         httpd = http.server.HTTPServer(server_address, MyHttpHandler)
         httpd.socket = ssl.wrap_socket(httpd.socket,
                                        server_side=True,
@@ -743,7 +474,7 @@ def run_proxy(
             ),
             certfile=cf,
             keyfile=kf,
-            ssl_context_cb=_alpn_ssl_context_cb if alpn else None,
+            ssl_context_cb=alpn_ssl_context_cb if alpn else None,
         )
         disguise = f"https://{disguise_tls_ip}:{disguise_tls_port}" if disguise_tls_ip else 'n/a'
         pstderr(f"Proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} => {remote_server}:{remote_port}{'(TLS)' if tls else ''} ...")
@@ -751,33 +482,12 @@ def run_proxy(
 
     if speed_monitor:
         import signal
-        submit_daemon_thread(_clients_check, speed_monitor_interval)
+        spawn_clients_monitor(speed_monitor_interval)
 
         def _signal_handler(sig, frame):
-            global _speed_monitor
-            _speed_monitor = False
+            stop_clients_monitor()
             signal.default_int_handler(sig, frame)
-            signal.signal(signal.SIGINT, signal.default_int_handler)
+
 
         signal.signal(signal.SIGINT, _signal_handler)
     sb.bind(address=local_server, port=local_port).close_future().sync()
-
-
-def _run():
-    enable_stderr()
-    _cli()
-
-
-if __name__ == '__main__':
-    enable_stderr()
-    # run_proxy(
-    #     local_server='localhost', local_port=8080,
-    #     remote_server='www.google.com', remote_port=80,
-    #     tls=False, ss=False,
-    #     content=False, to_file=False,
-    #     key_file='', cert_file='',
-    #     speed_monitor=False, speed_monitor_interval=5,
-    #     disguise_tls_ip='', disguise_tls_port=0,
-    #     white_list=None,
-    #     using_global=False,
-    # )
