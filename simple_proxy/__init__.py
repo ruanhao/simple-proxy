@@ -6,42 +6,38 @@ import click
 import logging
 import codecs
 import shutil
-from typing import Tuple
-
-from simple_proxy.handler.proxy_channel_handler import ProxyChannelHandler
-
 from .clients import (
     TcpProxyClient,
     get_client_or_none, get_client_or_create, pop_client, handle_data,
     spawn_clients_monitor, stop_clients_monitor,
 )
-
-from simple_proxy.utils import (
+from .utils.osutils import (
     submit_daemon_thread,
-    pretty_duration,
     from_cwd,
+)
+from .utils.netutils import (
     getpeername,
     getsockname,
-    create_temp_key_cert,
     free_port,
     set_keepalive,
-    enable_stderr,
-    alpn_ssl_context_cb,
 )
-from simple_proxy.utils.proxyutils import (
+from .utils.certutils import create_temp_key_cert
+from .utils.tlsutils import alpn_ssl_context_cb
+from .utils.proxyutils import (
     parse_proxy_info,
     trim_proxy_info,
 )
-
-from simple_proxy.utils.stringutils import (
+from .utils.stringutils import (
     random_sentence, pretty_speed,
     pretty_bytes,
+    pretty_duration,
     pattern_to_regex,
 )
-from simple_proxy.utils.logutils import pstderr, pfatal, setup_logging
-from simple_proxy.version import __version__
+from .utils.logutils import pstderr, pfatal, setup_logging, enable_stderr
+from .version import __version__
 from .handler.echo_channel_handler import EchoChannelHandler
 from .handler.shell_channel_handler import ShellChannelHandler
+from simple_proxy.handler.proxy_channel_handler import ProxyChannelHandler
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +45,11 @@ __ALL__ = ['run_proxy']
 
 
 class MyHttpHandler(http.server.BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
+    def log_message(self, format_, *args):
         # no log
         pass
 
-    def do_GET(self):
+    def do_GET(self):  # noqa
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
@@ -65,7 +61,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
             self,
             client_eventloop_group,
             content=False, to_file=False,
-            transform: Tuple[Tuple[str, int, str, int]] = None,
+            transform: tuple[tuple[str, int, str, int]] = None,
             http_proxy_username=None, http_proxy_password=None,
     ):
         self._client_eventloop_group = client_eventloop_group
@@ -83,7 +79,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 
         class _ChannelHandler(LoggingChannelHandler):
 
-            def channel_read(this, ctx, bytebuf):
+            def channel_read(this, ctx, bytebuf):  # noqa
                 handle_data(bytebuf, False, ctx.channel(), ctx0.channel(), self._content, self._to_file)
                 ctx0.write(bytebuf)
 
@@ -109,7 +105,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
         if logger.isEnabledFor(logging.DEBUG):
             pstderr(f"[HTTP PROXY] Connection opened   : {ctx.channel()}")
 
-    def _transform_host_port(self, origin_host: str, origin_port: int) -> Tuple[str, int]:
+    def _transform_host_port(self, origin_host: str, origin_port: int) -> tuple[str, int]:
         if self._transform:
             for h0, p0, h, p in self._transform:
                 if h0 == origin_host and p0 == origin_port:
@@ -231,7 +227,7 @@ def run_proxy(
         shadow=False,
         alpn=False,
         http_proxy=False,
-        http_proxy_transform: Tuple[Tuple[str, int, str, int]] = None,
+        http_proxy_transform: tuple[tuple[str, int, str, int]] = None,
         http_proxy_username=None, http_proxy_password=None,
         shell_proxy=False,
         read_delay_millis=0, write_delay_millis=0,
@@ -279,6 +275,7 @@ def run_proxy(
                                        certfile=cf_mock,
                                        keyfile=kf_mock,
                                        ssl_version=ssl.PROTOCOL_TLS)
+        pstderr(f"Mock TLS server started listening(https://localhost:{disguise_tls_port}) ...")
         submit_daemon_thread(httpd.serve_forever)
 
     client_eventloop_group = EventLoopGroup(proxy_workers, 'Client')
