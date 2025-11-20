@@ -137,7 +137,16 @@ def get_client_or_create(raddr: tuple[str, int]) -> TcpProxyClient:
 def pop_client(raddr: tuple[str, int]) -> TcpProxyClient | None:
     return _clients.pop(raddr, None)
 
-
+def _print_http_proxy_info():
+    from .handler.http_proxy_channel_handler import get_local_peer_to_target_mapping
+    mapping = get_local_peer_to_target_mapping()
+    if not mapping:
+        return
+    pstderr("HTTP Proxy Mappings".center(100, '-'))
+    count = 1
+    for peer, target in mapping.items():
+        pstderr(f"[{count:3}] | {peer:21} --> {target}")
+        count += 1
 
 def _clients_check(interval: int = 5):
     ever = False
@@ -182,6 +191,7 @@ def _clients_check(interval: int = 5):
             max_rx = pretty_speed(TcpProxyClient.max_rx)
             max_tx = pretty_speed(TcpProxyClient.max_tx)
             pstderr(f"Average Rx:{average_speed} bytes/s, Average Tx:{average_wspeed} bytes/s, Ever max Rx:{max_rx}, Ever max Tx:{max_tx}, Total Rx:{r}, Total Tx:{t}")
+        _print_http_proxy_info()
         time.sleep(interval)
 
 def spawn_clients_monitor(interval: int = 5):
