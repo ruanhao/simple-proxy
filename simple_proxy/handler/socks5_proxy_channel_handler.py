@@ -21,7 +21,7 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
             client_eventloop_group,
             content=False, to_file=False,
             transform: tuple[tuple[str, int, str, int]] = None,
-            http_proxy_username=None, http_proxy_password=None,
+            proxy_username=None, proxy_password=None,
     ):
         self._client_eventloop_group = client_eventloop_group
         self._client = None
@@ -33,8 +33,8 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
         self._content = content
         self._to_file = to_file
         self._transform = transform
-        self._http_proxy_username = http_proxy_username
-        self._http_proxy_password = http_proxy_password
+        self._proxy_username = proxy_username
+        self._proxy_password = proxy_password
         self.raddr = None
 
     def _client_channel(self, ctx0, ip, port):
@@ -143,7 +143,7 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
             if len(self._buffer) < 3 + ulen + plen:
                 return
             password = self._buffer[3 + ulen:3 + ulen + plen].decode('utf-8')
-            if (username != self._http_proxy_username) or (password != self._http_proxy_password):
+            if (username != self._proxy_username) or (password != self._proxy_password):
                 pstderr(f"[SOCKS5 Proxy|Auth] Authentication failed for user: {username}")
                 ctx.close()
                 return
@@ -165,8 +165,8 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
             self._buffer = b''
             # Send METHOD SELECTION MESSAGE
             # pstderr(f"[SOCKS5 Proxy] Selecting authentication method: {methods}")
-            if self._http_proxy_username and self._http_proxy_password and 0x02 not in methods:
-                pstderr("[SOCKS5 Proxy] USERNAME/PASSWORD authentication required but not supported by client")
+            if self._proxy_username and self._proxy_password and 0x02 not in methods:
+                pstderr("[SOCKS5 Proxy] USERNAME/PASSWORD authentication required but not set by client")
                 ctx.close()
                 return
             if 0x02 in methods:

@@ -1,37 +1,23 @@
 import http.server
 import ssl
+import signal
 from py_netty import ServerBootstrap, EventLoopGroup
 import click
+from click_option_group import optgroup
 import logging
 import codecs
 import shutil
 from .clients import (
-    TcpProxyClient,
-    get_client_or_none, get_client_or_create, pop_client, handle_data,
     spawn_clients_monitor, stop_clients_monitor,
 )
 from .handler.http_proxy_channel_handler import HttpProxyChannelHandler
 from .handler.socks5_proxy_channel_handler import Socks5ProxyChannelHandler
-from .utils.osutils import (
-    submit_daemon_thread,
-    from_cwd,
-)
-from .utils.netutils import (
-    getpeername,
-    getsockname,
-    free_port,
-    set_keepalive,
-)
+from .utils.osutils import submit_daemon_thread
+from .utils.netutils import free_port
 from .utils.certutils import create_temp_key_cert
 from .utils.tlsutils import alpn_ssl_context_cb
-from .utils.proxyutils import (
-    parse_proxy_info,
-    trim_proxy_info,
-)
 from .utils.stringutils import (
-    random_sentence, pretty_speed,
-    pretty_bytes,
-    pretty_duration,
+    random_sentence,
     pattern_to_regex,
 )
 from .utils.logutils import pstderr, pfatal, setup_logging, enable_stderr
@@ -61,38 +47,54 @@ class MyHttpHandler(http.server.BaseHTTPRequestHandler):
     help_option_names=['-h', '--help'],
     max_content_width=shutil.get_terminal_size().columns - 10,
 ))
-@click.option('--local-server', '-l', default='localhost', help='Local server address', show_default=True)
-@click.option('--local-port', '-lp', type=int, default=8080, help='Local port', show_default=True)
-@click.option('--remote-server', '-r', default='localhost', help='Remote server address', show_default=True)
-@click.option('--remote-port', '-rp', type=int, default=80, help='Remote port', show_default=True)
-@click.option('--global', '-g', 'using_global', is_flag=True, help='Listen on 0.0.0.0')
-@click.option('--workers', type=int, default=1, help='Number of worker threads', show_default=True)
-@click.option('--proxy-workers', type=int, default=1, help='Number of proxy threads', show_default=True)
-@click.option('--tcp-flow', '-c', 'content', is_flag=True, help='Dump tcp flow on to console')
-@click.option('--save-tcp-flow', '-f', 'to_file', is_flag=True, help='Save tcp flow to file')
-@click.option('--tls', '-s', is_flag=True, help='Denote remote server listening on secure port')
-@click.option('-ss', is_flag=True, help='Denote local sever listening on secure port')
-@click.option('--key-file', '-kf', help='Key file for local server', type=click.Path(exists=True))
-@click.option('--cert-file', '-cf', help='Certificate file for local server', type=click.Path(exists=True))
-@click.option('--speed-monitor', '-sm', is_flag=True, help='Print speed info to console for established connection')
-@click.option('--speed-monitor-interval', '-smi', type=int, default=3, help='Speed monitor interval', show_default=True)
-@click.option('--disguise-tls-ip', '-dti', help='Disguise TLS IP')
-@click.option('--disguise-tls-port', '-dtp', type=int, help='Disguise TLS port', default=443, show_default=True)
-@click.option('--white-list', '-wl', help='IP White list for incoming connections (comma separated)')
-@click.option('--run-mock-tls-server', is_flag=True, help='Run mock TLS server')
-@click.option('--as-echo-server', '-e', is_flag=True, help='Run as Echo Server')
-@click.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
-@click.option('--alpn', is_flag=True, help='Set ALPN protocol as [h2, http/1.1]')
-@click.option('--http-proxy', is_flag=True, help='HTTP proxy mode')
-@click.option('--socks5-proxy', is_flag=True, help='HTTP proxy mode')
-@click.option('--http-proxy-username', help='HTTP proxy username')
-@click.option('--http-proxy-password', help='HTTP proxy password')
-@click.option('--http-proxy-transform', '-t', type=(str, int, str, int), multiple=True, help='HTTP proxy transform(host, port, transformed_host, transformed_port)')
-@click.option('--shell-proxy', is_flag=True, help='Shell proxy mode')
-@click.option('-v', '--verbose', count=True)
-@click.option('--read-delay-millis', type=int, help='Read delay in milliseconds (only apply to TCP proxy mode)', default=0, show_default=True)
-@click.option('--write-delay-millis', type=int, help='Write delay in milliseconds (only apply to TCP proxy mode)', default=0, show_default=True)
-@click.option('--log-file', help='Log file', type=click.Path())
+@optgroup.group('Common configuration', help='Configuration for local/remote endpoints')
+@optgroup.option('--local-server', '-l', default='localhost', help='Local server address', show_default=True)
+@optgroup.option('--local-port', '-lp', type=int, default=8080, help='Local port', show_default=True)
+@optgroup.option('--global', '-g', 'using_global', is_flag=True, help='Local port listening on all interfaces')
+@optgroup.option('--remote-server', '-r', default='localhost', help='Remote server address', show_default=True)
+@optgroup.option('--remote-port', '-rp', type=int, default=80, help='Remote port', show_default=True)
+@optgroup.option('--tls', '-s', is_flag=True, help='Denote remote is listening on secure port')
+@optgroup.option('-ss', is_flag=True, help='Make local listen on secure port')
+@optgroup.group('TCP proxy configuration', help='Configuration for TCP proxy mode')
+@optgroup.option('--read-delay-millis', type=int, help='Read delay in milliseconds', default=0, show_default=True)
+@optgroup.option('--write-delay-millis', type=int, help='Write delay in milliseconds', default=0, show_default=True)
+#
+@optgroup.group('Thread configuration', help='Configuration for thread pool')
+@optgroup.option('--workers', type=int, default=1, help='Number of worker threads', show_default=True)
+@optgroup.option('--proxy-workers', type=int, default=1, help='Number of proxy threads', show_default=True)
+#
+@optgroup.group('Traffic dump configuration', help='Configuration for traffic dump')
+@optgroup.option('--tcp-flow', '-c', 'content', is_flag=True, help='Dump tcp flow on to console')
+@optgroup.option('--save-tcp-flow', '-f', 'to_file', is_flag=True, help='Save tcp flow to file')
+#
+@optgroup.group('TLS certificate configuration', help='Configuration for TLS certificate')
+@optgroup.option('--key-file', '-kf', help='Key file for local server', type=click.Path(exists=True))
+@optgroup.option('--cert-file', '-cf', help='Certificate file for local server', type=click.Path(exists=True))
+@optgroup.option('--alpn', is_flag=True, help='Set ALPN protocol as [h2, http/1.1]')
+#
+@optgroup.group('Traffic monitor configuration', help='Configuration for traffic monitor')
+@optgroup.option('--monitor', '-m', is_flag=True, help='Print speed info to console for established connection')
+@optgroup.option('--monitor-interval', '-mi', type=int, default=3, help='Speed monitor interval', show_default=True)
+#
+@optgroup.group('Disguise configuration', help='Configuration for protection against unwanted inspection')
+@optgroup.option('--disguise-tls-ip', '-dti', help='Disguised upstream TLS IP')
+@optgroup.option('--disguise-tls-port', '-dtp', type=int, help='Disguised upstream TLS port', default=443, show_default=True)
+@optgroup.option('--white-list', '-wl', help='IP White list for legal incoming connections (comma separated)')
+@optgroup.option('--run-mock-tls-server', is_flag=True, help='Run mock TLS server without using disguise server')
+@optgroup.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
+#
+@optgroup.group('Proxy configuration', help='Configuration for proxy')
+@optgroup.option('--as-echo-server', '-e', is_flag=True, help='Run as Echo server')
+@optgroup.option('--shell-proxy', is_flag=True, help='Run as shell proxy server')
+@optgroup.option('--http-proxy', is_flag=True, help='Run as HTTP proxy server')
+@optgroup.option('--socks5-proxy', is_flag=True, help='Run as SOCKS5 proxy server')
+@optgroup.option('--proxy-username', help='Proxy username')
+@optgroup.option('--proxy-password', help='Proxy password')
+@optgroup.option('--proxy-transform', '-t', type=(str, int, str, int), multiple=True, help='List of target transformations(origin_host, origin_port, transformed_host, transformed_port)')
+#
+@optgroup.group('Misc configuration')
+@optgroup.option('-v', '--verbose', count=True)
+@optgroup.option('--log-file', help='Log file', type=click.Path())
 @click.version_option(prog_name='Simple Proxy', version=__version__)
 def _cli(verbose, log_file: click.Path, **kwargs):
     setup_logging(log_file, logging.INFO if verbose == 0 else logging.DEBUG)
@@ -109,7 +111,7 @@ def run_proxy(
         content=False, to_file=False,
         tls=False, ss=False,
         key_file=None, cert_file=None,
-        speed_monitor=False, speed_monitor_interval=3,
+        monitor=False, monitor_interval=3,
         disguise_tls_ip=None, disguise_tls_port=443,
         white_list=None,
         run_mock_tls_server=False,
@@ -117,8 +119,8 @@ def run_proxy(
         alpn=False,
         http_proxy=False,
         socks5_proxy=False,
-        http_proxy_transform: tuple[tuple[str, int, str, int]] = None,
-        http_proxy_username=None, http_proxy_password=None,
+        proxy_transform: tuple[tuple[str, int, str, int]] = None,
+        proxy_username=None, proxy_password=None,
         shell_proxy=False,
         read_delay_millis=0, write_delay_millis=0,
         workers=1, proxy_workers=1,
@@ -177,15 +179,15 @@ def run_proxy(
                 client_eventloop_group,
                 content=content,
                 to_file=to_file,
-                transform=http_proxy_transform,
-                http_proxy_username=http_proxy_username,
-                http_proxy_password=http_proxy_password,
+                transform=proxy_transform,
+                proxy_username=proxy_username,
+                proxy_password=proxy_password,
             ),
         )
         pstderr(f"HTTP Proxy server started listening: {local_server}:{local_port} [console:{content}, file:{to_file}] ... ")
-        if http_proxy_transform:
+        if proxy_transform:
             pstderr("HTTP Proxy transforms:")
-            for h0, p0, h, p in http_proxy_transform:
+            for h0, p0, h, p in proxy_transform:
                 pstderr(f"  {h0}:{p0} -> {h}:{p}")
     elif socks5_proxy:
         sb = ServerBootstrap(
@@ -195,15 +197,15 @@ def run_proxy(
                 client_eventloop_group,
                 content=content,
                 to_file=to_file,
-                transform=http_proxy_transform,
-                http_proxy_username=http_proxy_username,
-                http_proxy_password=http_proxy_password,
+                transform=proxy_transform,
+                proxy_username=proxy_username,
+                proxy_password=proxy_password,
             ),
         )
         pstderr(f"Socks5 Proxy server started listening: {local_server}:{local_port} [console:{content}, file:{to_file}] ... ")
-        if http_proxy_transform:
+        if proxy_transform:
             pstderr("Proxy transforms:")
-            for h0, p0, h, p in http_proxy_transform:
+            for h0, p0, h, p in proxy_transform:
                 pstderr(f"  {h0}:{p0} -> {h}:{p}")
     elif shell_proxy:
         sb = ServerBootstrap(
@@ -251,17 +253,16 @@ def run_proxy(
         pstderr(f"Proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} => {remote_server}:{remote_port}{'(TLS)' if tls else ''} ...")
         pstderr(f"console:{content}, file:{to_file}, disguise:{disguise}, whitelist:{white_list0 or '*'}, shadow:{shadow}")
 
-    if speed_monitor:
-        import signal
-        spawn_clients_monitor(speed_monitor_interval)
+    if monitor:
+        spawn_clients_monitor(monitor_interval)
 
         def _signal_handler(sig, frame):
             stop_clients_monitor()
             signal.default_int_handler(sig, frame)
 
-
         signal.signal(signal.SIGINT, _signal_handler)
     sb.bind(address=local_server, port=local_port).close_future().sync()
+
 
 # for setup.py entry point
 def _run():
