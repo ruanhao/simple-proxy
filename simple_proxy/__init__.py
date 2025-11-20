@@ -1,4 +1,3 @@
-import socket
 import http.server
 import ssl
 from functools import wraps
@@ -15,26 +14,34 @@ import re
 import codecs
 from collections import defaultdict
 import time
-from attrs import define, field
 import subprocess
 import shutil
 from typing import Optional, Tuple
+
+from .clients import TcpProxyClient
+
 from simple_proxy.utils import (
     submit_daemon_thread,
-    random_sentence,
     pretty_duration,
-    format_bytes,
-    pretty_bytes,
-    pretty_speed,
     from_cwd,
     getpeername,
     getsockname,
     create_temp_key_cert,
     free_port,
     set_keepalive,
+    enable_stderr,
+)
+from simple_proxy.utils.proxyutils import (
     parse_proxy_info,
     trim_proxy_info,
 )
+
+from simple_proxy.utils.stringutils import (
+    random_sentence, pretty_speed,
+    pretty_bytes,
+    pattern_to_regex,
+)
+from simple_proxy.utils.logutils import pstderr, pfatal, setup_logging
 from simple_proxy.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -44,118 +51,12 @@ def _alpn_ssl_context_cb(ssl_ctx):
     ssl_ctx.set_alpn_protocols(["h2", "http/1.1"])
 
 
-def _setup_logging(log_file, level=logging.INFO):
-    handler = logging.StreamHandler()
-    if log_file:
-        from logging.handlers import RotatingFileHandler
-        pstderr(f"Save log at {log_file}")
-        handler = RotatingFileHandler(
-            filename=log_file,
-            maxBytes=10 * 1024 * 1024,  # 10M
-            backupCount=5
-        )
-    logging.basicConfig(
-        handlers=[handler],
-        level=level,
-        format='%(asctime)s.%(msecs)03d - %(name)s - %(levelname)s - %(threadName)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-
-
 __ALL__ = ['run_proxy']
 
 
 _speed_monitor = True
-_stderr = False
 
-
-def pstderr(msg):
-    logger.debug(msg)
-    if _stderr:
-        click.echo(msg, err=True)
-
-
-def pfatal(msg):
-    logger.critical(msg)
-    exit(1)
-
-
-@define(slots=True, kw_only=True, order=True)
-class _Client():
-
-    global_rx = 0
-    global_tx = 0
-    max_rx = 0
-    max_tx = 0
-
-    last_read_time: float = field(factory=time.perf_counter)
-    total_read_bytes: int = field(default=0)
-    cumulative_read_bytes: int = field(default=0)  # bytes
-    cumulative_read_time: float = field(default=0.0)  # seconds
-    rbps: float = field(default=0.0)
-    born_time: float = field(factory=time.perf_counter)
-
-    last_write_time: float = field(factory=time.perf_counter)
-    total_write_bytes: int = field(default=0)
-    cumulative_write_bytes: int = field(default=0)  # bytes
-    cumulative_write_time: float = field(default=0.0)  # seconds
-    wbps: float = field(default=0.0)
-
-    local_socket: socket.socket = field(default=None)
-    proxy_socket: socket.socket = field(default=None)
-
-    def pretty_born_time(self):
-        return pretty_duration(time.perf_counter() - self.born_time)
-
-    def pretty_rx_speed(self):
-        return pretty_speed(self.rbps)
-
-    def pretty_tx_speed(self):
-        return pretty_speed(self.wbps)
-
-    def pretty_rx_total(self):
-        return pretty_bytes(self.total_read_bytes)
-
-    def pretty_tx_total(self):
-        return pretty_bytes(self.total_write_bytes)
-
-    def read(self, size):
-        self.__class__.global_rx += size
-        current_time = time.perf_counter()
-        self.cumulative_read_time += (current_time - self.last_read_time)
-        self.last_read_time = current_time
-        self.total_read_bytes += size
-        self.cumulative_read_bytes += size
-        if self.cumulative_read_time > 1:
-            self.rbps = int(self.cumulative_read_bytes / self.cumulative_read_time)  # bytes per second
-            self.__class__.max_rx = max(self.__class__.max_rx, self.rbps)
-            self.cumulative_read_time = 0
-            self.cumulative_read_bytes = 0
-
-    def write(self, size):
-        self.__class__.global_tx += size
-        current_time = time.perf_counter()
-        self.cumulative_write_time += (current_time - self.last_write_time)
-        self.last_write_time = current_time
-        self.total_write_bytes += size
-        self.cumulative_write_bytes += size
-        if self.cumulative_write_time > 1:
-            self.wbps = int(self.cumulative_write_bytes / self.cumulative_write_time)  # bytes per second
-            self.__class__.max_tx = max(self.__class__.max_tx, self.wbps)
-            self.cumulative_write_time = 0
-            self.cumulative_write_bytes = 0
-
-    def check(self):
-        if time.perf_counter() - self.last_read_time > 3:
-            self.rbps = 0
-            self.cumulative_read_time = 0
-            self.cumulative_read_bytes = 0
-            self.wbps = 0
-            self.cumulative_write_time = 0
-            self.cumulative_write_bytes = 0
-
-
-_clients = defaultdict(_Client)
+_clients = defaultdict(TcpProxyClient)
 
 
 def _check_patterns(patterns, s):
@@ -165,12 +66,6 @@ def _check_patterns(patterns, s):
             return True
     logger.warning(f"no pattern matched {s}")
     return False
-
-
-def _pattern_to_regex(pattern: str) -> str:
-    regex_pattern = re.escape(pattern)
-    regex_pattern = regex_pattern.replace(r'\*', r'.*')
-    return regex_pattern
 
 
 def _repr(obj):
@@ -285,12 +180,10 @@ def _clients_check(interval):
         if total:
             average_speed = round(sum([c.rbps for c in clients_snapshot.values()]) / total, 2)
             average_wspeed = round(sum([c.wbps for c in clients_snapshot.values()]) / total, 2)
-            ever_rx, unit_r = format_bytes(_Client.global_rx)
-            ever_tx, unit_t = format_bytes(_Client.global_tx)
-            r = f"{ever_rx}{unit_r or 'B'}"
-            t = f"{ever_tx}{unit_t or 'B'}"
-            max_rx = pretty_speed(_Client.max_rx)
-            max_tx = pretty_speed(_Client.max_tx)
+            r = pretty_bytes(TcpProxyClient.global_rx)
+            t = pretty_bytes(TcpProxyClient.global_tx)
+            max_rx = pretty_speed(TcpProxyClient.max_rx)
+            max_tx = pretty_speed(TcpProxyClient.max_tx)
             pstderr(f"Average Rx:{average_speed} bytes/s, Average Tx:{average_wspeed} bytes/s, Ever max Rx:{max_rx}, Ever max Tx:{max_tx}, Total Rx:{r}, Total Tx:{t}")
         time.sleep(interval)
 
@@ -720,7 +613,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
 @click.option('--log-file', help='Log file', type=click.Path())
 @click.version_option(prog_name='Simple Proxy', version=__version__)
 def _cli(verbose, log_file: click.Path, **kwargs):
-    _setup_logging(log_file, logging.INFO if verbose == 0 else logging.DEBUG)
+    setup_logging(log_file, logging.INFO if verbose == 0 else logging.DEBUG)
     if verbose:
         logger.setLevel(logging.DEBUG)
         logging.getLogger('simple_proxy.utils').setLevel(logging.DEBUG)
@@ -761,7 +654,7 @@ def run_proxy(
     white_list0 = white_list or ''
     if white_list:
         white_list = white_list.split(',')
-        white_list = [_pattern_to_regex(x) for x in white_list]
+        white_list = [pattern_to_regex(x) for x in white_list]
 
     if using_global:
         local_server = '0.0.0.0'
@@ -871,51 +764,12 @@ def run_proxy(
 
 
 def _run():
-    global _stderr
-    _stderr = True
+    enable_stderr()
     _cli()
 
 
-def _test_pattern_to_regex():
-    assert _pattern_to_regex('*.example.com') == r'.*\.example\.com'
-    assert _pattern_to_regex('example.com') == r'example\.com'
-    assert _pattern_to_regex('example.*.com') == r'example\..*\.com'
-    assert _pattern_to_regex('example.com.*') == r'example\.com\..*'
-
-
-def _test_Client():
-    c1 = _Client()
-    c2 = _Client()
-    c1.read(100)
-    c1.write(101)
-    assert _Client.global_rx == 100
-    assert _Client.global_tx == 101
-    c2.read(200)
-    c2.write(201)
-    assert _Client.global_rx == 300
-    assert _Client.global_tx == 302
-
-
-def _test_format_bytes():
-    v, u = format_bytes(1)
-    assert v == 1
-    assert u == 'B'
-    v, u = format_bytes(1025)
-    assert v == 1, v
-    assert u == 'K', u
-    v, u = format_bytes(1025 * 1024)
-    assert v == 1, v
-    assert u == 'M', u
-    v, u = format_bytes(60 * 1024 * 1024)
-    assert v == 60, v
-    assert u == 'M', u
-
-
 if __name__ == '__main__':
-    _test_pattern_to_regex()
-    _test_Client()
-    _test_format_bytes()
-    _stderr = True
+    enable_stderr()
     # run_proxy(
     #     local_server='localhost', local_port=8080,
     #     remote_server='www.google.com', remote_port=80,
