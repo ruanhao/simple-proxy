@@ -6,7 +6,7 @@ from ..utils.tlsutils import alpn_ssl_context_cb
 from ..clients import handle_data, get_client_or_create, pop_client
 from ..utils.netutils import set_keepalive
 from ..utils.logutils import pstderr
-from ..utils.stringutils import check_patterns
+from ..utils.stringutils import check_ip_patterns
 import logging
 
 logger = logging.getLogger(__name__)
@@ -116,7 +116,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
         if self._shadow and self._disguise_tls_ip and bytebuf[0:2] == b'\x16\x03':
             pstderr(f"Malicious TLS visitor: {ctx.channel()}")
             self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
-        elif self._white_list and not check_patterns(self._white_list, ctx.channel().socket().getpeername()[0]):
+        elif self._white_list and not check_ip_patterns(self._white_list, ctx.channel().socket().getpeername()[0]):
             pstderr(f"Malicious visitor: {ctx.channel()}")
             if self._disguise_tls_ip and self._disguise_tls_port:
                 self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)

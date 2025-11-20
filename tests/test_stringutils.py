@@ -2,6 +2,7 @@ from simple_proxy.utils import (
     random_sentence, pretty_bytes, pretty_speed,
     pattern_to_regex,
     pretty_duration,
+    check_ip_patterns,
 )
 
 
@@ -38,3 +39,13 @@ def test_pretty_duration():
     assert pretty_duration(0) == '0S'
     assert pretty_duration(0.5) == '500MS'
     assert pretty_duration(90061.5) == '1D,1H,1M,1S,500MS'
+
+
+def test_check_ip_patterns():
+    patterns = ['1.2.3.4', '10.74.107.1', '10.74.113.*', '10.74.*.1']
+    assert check_ip_patterns(patterns, '10.74.107.1') is True
+    assert check_ip_patterns(patterns, '10.74.113.3') is True
+    assert check_ip_patterns(patterns, '10.74.115.3') is True
+    assert check_ip_patterns(patterns, '2.3.4.5') is False
+    assert check_ip_patterns(patterns, '127.0.0.1') is False
+    assert check_ip_patterns(patterns, 'localhost') is False

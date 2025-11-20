@@ -60,7 +60,7 @@ def pretty_duration(seconds: float) -> str:
             parts.append('{}{}'.format(amount, unit))
     return ','.join(parts)
 
-def check_patterns(patterns, s):
+def check_ip_patterns(patterns: list[str], s: str) -> bool:
     for pattern in patterns:
         if re.search(pattern, s):
             _get_logger().debug(f"pattern {pattern} matched {s}")
