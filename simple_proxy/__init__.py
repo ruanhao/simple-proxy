@@ -11,6 +11,7 @@ from .clients import (
     spawn_clients_monitor, stop_clients_monitor,
 )
 from .handler.http_proxy_channel_handler import HttpProxyChannelHandler
+from .handler.socks5_proxy_channel_handler import Socks5ProxyChannelHandler
 from .utils.osutils import (
     submit_daemon_thread,
     from_cwd,
@@ -83,6 +84,7 @@ class MyHttpHandler(http.server.BaseHTTPRequestHandler):
 @click.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
 @click.option('--alpn', is_flag=True, help='Set ALPN protocol as [h2, http/1.1]')
 @click.option('--http-proxy', is_flag=True, help='HTTP proxy mode')
+@click.option('--socks5-proxy', is_flag=True, help='HTTP proxy mode')
 @click.option('--http-proxy-username', help='HTTP proxy username')
 @click.option('--http-proxy-password', help='HTTP proxy password')
 @click.option('--http-proxy-transform', '-t', type=(str, int, str, int), multiple=True, help='HTTP proxy transform(host, port, transformed_host, transformed_port)')
@@ -114,6 +116,7 @@ def run_proxy(
         shadow=False,
         alpn=False,
         http_proxy=False,
+        socks5_proxy=False,
         http_proxy_transform: tuple[tuple[str, int, str, int]] = None,
         http_proxy_username=None, http_proxy_password=None,
         shell_proxy=False,
@@ -182,6 +185,24 @@ def run_proxy(
         pstderr(f"HTTP Proxy server started listening: {local_server}:{local_port} [console:{content}, file:{to_file}] ... ")
         if http_proxy_transform:
             pstderr("HTTP Proxy transforms:")
+            for h0, p0, h, p in http_proxy_transform:
+                pstderr(f"  {h0}:{p0} -> {h}:{p}")
+    elif socks5_proxy:
+        sb = ServerBootstrap(
+            parant_group=EventLoopGroup(1, 'Boss'),
+            child_group=EventLoopGroup(workers, 'Worker'),
+            child_handler_initializer=lambda: Socks5ProxyChannelHandler(
+                client_eventloop_group,
+                content=content,
+                to_file=to_file,
+                transform=http_proxy_transform,
+                http_proxy_username=http_proxy_username,
+                http_proxy_password=http_proxy_password,
+            ),
+        )
+        pstderr(f"Socks5 Proxy server started listening: {local_server}:{local_port} [console:{content}, file:{to_file}] ... ")
+        if http_proxy_transform:
+            pstderr("Proxy transforms:")
             for h0, p0, h, p in http_proxy_transform:
                 pstderr(f"  {h0}:{p0} -> {h}:{p}")
     elif shell_proxy:
