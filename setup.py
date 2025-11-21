@@ -28,7 +28,7 @@ config = {
     'package_data': {'simple_proxy': ['*']},
     'entry_points': {
         'console_scripts': [
-            'simple-proxy = simple_proxy.__init__:_run',
+            'simple-proxy = simple_proxy.__main__:_run',
         ],
     },
     'classifiers': [
