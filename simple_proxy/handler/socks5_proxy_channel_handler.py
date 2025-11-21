@@ -170,7 +170,7 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
                 password = self._buffer[3 + ulen:3 + ulen + plen].decode('utf-8')
                 if self._proxy_username and self._proxy_password:
                     if (username != self._proxy_username) or (password != self._proxy_password):
-                        masked_password = '*' * len(password)
+                        masked_password = '*' * len(password) if password else ''
                         # ctx.write(bytes([0x01, 0x01]))  # VER, STATUS(FAILURE)
                         raise ValueError(f"[SOCKS5 Proxy|Auth] Authentication failed: {username}/{masked_password}")
                 ctx.write(bytes([0x01, 0x00]))  # VER, STATUS(SUCCESS)
