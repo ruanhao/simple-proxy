@@ -46,13 +46,12 @@ Proxy-Connection: Keep-Alive\r\n\r\n""")
 
 
 def test_parse_proxy_info_case_no_connect():
-    proxy_info = parse_proxy_info("""connec dev.finditnm.com:443 HTTP/1.1\r\n
+    with pytest.raises(ValueError, match="Invalid HTTP request format"):
+        parse_proxy_info("""connec dev.finditnm.com:443 HTTP/1.1\r\n
 Host: dev.finditnm.com:443\r\n
 proxy-authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\n
 User-Agent: curl/8.7.1\r\n
 Proxy-Connection: Keep-Alive\r\n\r\n""")
-    assert proxy_info.host == "dev.finditnm.com"
-    assert proxy_info.port == 443
 
 
 def test_parse_proxy_info_case_wrong_base64():
@@ -63,7 +62,7 @@ def test_parse_proxy_info_case_wrong_base64():
 
 
 def test_parse_proxy_info_case_http_proxy():
-    parse_info = parse_proxy_info("""GET http://dev.finditnm.com/ HTTP/1.1\r\nHost: dev.finditnm.com\r\nProxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")
+    parse_info = parse_proxy_info("""GET http://dev.finditnm.com/ HTTP/1.1\r\nHost: dev.cbd-aws.com:443\r\nProxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")
     assert parse_info.host == "dev.finditnm.com"
     assert parse_info.port == 80
     assert parse_info.username == "qiangwa3"
@@ -71,14 +70,37 @@ def test_parse_proxy_info_case_http_proxy():
 
 
 def test_parse_proxy_info_case_http_proxy_with_port():
-    parse_info = parse_proxy_info("""GET http://dev.finditnm.com:8080/ HTTP/1.1\r\nHost: dev.finditnm.com:8080\r\nProxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")
+    parse_info = parse_proxy_info("""GET http://dev.finditnm.com:8080/ HTTP/1.1\r\nHost: dev.cbd-aws.com:8081\r\nProxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")
     assert parse_info.host == "dev.finditnm.com"
     assert parse_info.port == 8080
     assert parse_info.username == "qiangwa3"
     assert parse_info.password == "lallaa"
 
 
-def test_trim_proxy_info():
+def test_trim_proxy_info_case_uri():
+    for method in ['GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS', 'PATCH', 'TRACE']:
+        raw = f"""{method} http://dev.finditnm.com:8080/a/b/c HTTP/1.1\r
+Host: dev.finditnm.com:8080\r
+User-Agent: curl/8.7.1\r
+Accept: */*\r
+Proxy-Connection: Keep-Alive\r\n\r\n""".encode('utf-8')
+        trimmed = trim_proxy_info(raw)
+        trimmed_str = trimmed.decode('utf-8')
+        assert f"{method} /a/b/c HTTP/1.1" in trimmed_str
+
+    raw = b"""GET http://10.74.107.166/api/auth HTTP/1.1\r
+Host: 10.74.107.166\r
+Proxy-Connection: keep-alive\r
+Pragma: no-cache\r
+Cache-Control: no-cache\r\n\r\n"""
+    trimmed = trim_proxy_info(raw)
+    trimmed_str = trimmed.decode('utf-8')
+    assert "GET /api/auth HTTP/1.1" in trimmed_str
+    assert "Proxy-Connection" not in trimmed_str
+
+
+
+def test_trim_proxy_info_case_proxy_authentication():
     assert not trim_proxy_info(b'')
     raw = b"""GET http://dev.finditnm.com:8080/ HTTP/1.1\r
 Host: dev.finditnm.com:8080\r
@@ -106,5 +128,5 @@ Proxy-Connection: Keep-Alive\r\n\r\n""")
 
 
 def test_parse_proxy_info_case_invalid_host_header():
-    with pytest.raises(ValueError, match="Invalid Host header format"):
-        parse_proxy_info("""GET http://dev.finditnm.com/ HTTP/1.1\r\nHost: dev.finditnm.com:https\r\nProxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")
+    with pytest.raises(ValueError, match="Invalid HTTP request format"):
+        parse_proxy_info("""GET http://dev.finditnm.com:https/ HTTP/1.1\r\nHost: dev.finditnm.com:8080\r\nProxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")

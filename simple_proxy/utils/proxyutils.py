@@ -4,7 +4,7 @@ from attrs import define, field
 
 
 @define(slots=True, kw_only=True, order=True)
-class ProxyInfo():
+class ProxyInfo:
 
     host: str = field()
     port: int = field()
@@ -14,23 +14,18 @@ class ProxyInfo():
 
 def parse_proxy_info(request_headers: str) -> ProxyInfo:
     # for CONNECT
-    if request_headers.startswith('CONNECT'):  # https proxy
+    if request_headers.lower().startswith('connect'):  # https proxy
         match = re.search(r'CONNECT\s+([\w\.-]+):(\d+)\s+HTTP/.+\r\n', request_headers, re.IGNORECASE)
         if not match:
             raise ValueError("Invalid CONNECT request format")
         host, port = match.groups()
         port = int(port)
     else:                       # http proxy
-        match_with_port = re.search(r'Host:\s+([\w\.-]+):(\d+)\r\n', request_headers, re.IGNORECASE)
-        match_without_port = re.search(r'Host:\s+([\w\.-]+)\r\n', request_headers, re.IGNORECASE)
-        if match_with_port:
-            host, port = match_with_port.groups()
-            port = int(port)
-        elif match_without_port:
-            host = match_without_port.group(1)
-            port = 80
-        else:
-            raise ValueError("Invalid Host header format")
+        uri = re.search(r'^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|TRACE)\s+http://([\w\.-]+)(:\d+)?/', request_headers, re.IGNORECASE | re.MULTILINE)
+        if not uri:
+            raise ValueError("Invalid HTTP request format")
+        host = uri.group(2)
+        port = int(uri.group(3)[1:]) if uri.group(3) else 80
 
     # for Proxy-Authorization
     auth_match = re.search(r'Proxy-Authorization:\s+Basic\s+([\w=+/]+)', request_headers, re.IGNORECASE)
@@ -52,4 +47,7 @@ def trim_proxy_info(request_headers_bytes: bytes) -> bytes:
     # trimmed = re.sub(b'Proxy-Authorization: Basic [a-zA-Z0-9+/=]+\r\n', b'', trimmed, flags=re.IGNORECASE)
     trimmed = request_headers_bytes
     trimmed = re.sub(b'Proxy-.*\r\n', b'', trimmed, flags=re.IGNORECASE)
+    # remove host in url line
+    trimmed = re.sub(b'^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|TRACE|CONNECT)\s+http://[\w\.-]+(:\d+)?/',
+                     lambda m: m.group(1) + b' /', trimmed, flags=re.IGNORECASE | re.MULTILINE)
     return trimmed
