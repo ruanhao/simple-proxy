@@ -11,6 +11,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class ProxyChannelHandler(LoggingChannelHandler):
     def __init__(
             self,
@@ -19,13 +20,10 @@ class ProxyChannelHandler(LoggingChannelHandler):
             tls=False, content=False, to_file=False,
             disguise_tls_ip=None, disguise_tls_port=None,
             white_list=None,
-            shadow=False,
             alpn=False,
             read_delay_millis=0,
             write_delay_millis=0,
     ):
-
-
         self._remote_host = remote_host
         self._remote_port = remote_port
         self._client_eventloop_group = client_eventloop_group
@@ -37,7 +35,6 @@ class ProxyChannelHandler(LoggingChannelHandler):
         self._disguise_tls_ip = disguise_tls_ip
         self._disguise_tls_port = disguise_tls_port
         self._white_list = white_list
-        self._shadow = shadow
         self._alpn = alpn
         self._read_delay_millis = read_delay_millis
         self._write_delay_millis = write_delay_millis
@@ -109,11 +106,11 @@ class ProxyChannelHandler(LoggingChannelHandler):
         if self._client:
             return
 
-        if self._shadow and self._disguise_tls_ip and bytebuf is None:
+        if self._disguise_tls_ip and bytebuf is None:
             # wait for the first packet
             return
 
-        if self._shadow and self._disguise_tls_ip and bytebuf[0:2] == b'\x16\x03':
+        if self._disguise_tls_ip and bytebuf[0:2] == b'\x16\x03':
             pstderr(f"Malicious TLS visitor: {ctx.channel()}")
             self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
         elif self._white_list and not check_ip_patterns(self._white_list, ctx.channel().socket().getpeername()[0]):
