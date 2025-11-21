@@ -20,7 +20,7 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
             self,
             client_eventloop_group,
             content=False, to_file=False,
-            transform: tuple[tuple[str, int, str, int]] = None,
+            transform: tuple[tuple[str, int, str, int], ...] = None,
             proxy_username=None, proxy_password=None,
     ):
         self._client_eventloop_group = client_eventloop_group
@@ -88,16 +88,12 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
             return
         self._buffer += bytebuf
         if self._after_authenticated:
-            if len(self._buffer) < 10:
+            if len(self._buffer) < 4:
                 return
             if self._buffer[0] != 0x05:
-                pstderr(f"[SOCKS5 Proxy|PostAuth] Unsupported SOCKS version: {self._buffer[0]}")
-                ctx.close()
-                return
+                raise ValueError(f"[SOCKS5 Proxy|PostAuth] Unsupported SOCKS version: {self._buffer[0]}")
             if self._buffer[1] != 0x01:
-                pstderr(f"[SOCKS5 Proxy|PostAuth] Unsupported CMD: {self._buffer[1]}")
-                ctx.close()
-                return
+                raise ValueError(f"[SOCKS5 Proxy|PostAuth] Unsupported CMD: {self._buffer[1]}")
             addr_type = self._buffer[3]
             if addr_type == 0x01:  # IPv4
                 if len(self._buffer) < 10:
@@ -105,19 +101,17 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
                 addr = socket.inet_ntoa(self._buffer[4:8])
                 port = int.from_bytes(self._buffer[8:10], 'big')
             elif addr_type == 0x03:  # Domain name
+                if len(self._buffer) < 5:
+                    return
                 domain_length = self._buffer[4]
                 if len(self._buffer) < 5 + domain_length + 2:
                     return
                 addr = self._buffer[5:5 + domain_length].decode('utf-8')
                 port = int.from_bytes(self._buffer[5 + domain_length:5 + domain_length + 2], 'big')
             elif addr_type == 0x04:  # IPv6
-                pstderr("[SOCKS5 Proxy|PostAuth] IPv6 not supported")
-                ctx.close()
-                return
+                raise ValueError("[SOCKS5 Proxy|PostAuth] IPv6 not supported")
             else:
-                pstderr(f"[SOCKS5 Proxy|PostAuth] Unsupported ADDR TYPE: {addr_type}")
-                ctx.close()
-                return
+                raise ValueError(f"[SOCKS5 Proxy|PostAuth] Unsupported ADDR TYPE: {addr_type}")
             origin_addr, origin_port = addr, port
             host, port = self._transform_host_port(origin_addr, origin_port)
             get_client_or_create(self.raddr).proxy_socket = self._client_channel(ctx, host, int(port)).socket()
@@ -132,9 +126,7 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
             if len(self._buffer) < 3:
                 return
             if self._buffer[0] != 0x01:
-                pstderr(f"[SOCKS5 Proxy|Auth] Unsupported SOCKS version: {self._buffer[0]}")
-                ctx.close()
-                return
+                raise ValueError(f"[SOCKS5 Proxy|Auth] Unsupported SOCKS version: {self._buffer[0]}")
             ulen = self._buffer[1]
             if len(self._buffer) < 3 + ulen:
                 return
@@ -144,9 +136,8 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
                 return
             password = self._buffer[3 + ulen:3 + ulen + plen].decode('utf-8')
             if (username != self._proxy_username) or (password != self._proxy_password):
-                pstderr(f"[SOCKS5 Proxy|Auth] Authentication failed for user: {username}")
-                ctx.close()
-                return
+                masked_password = '*' * len(password)
+                raise ValueError(f"[SOCKS5 Proxy|Auth] Authentication failed: {username}/{masked_password}")
             ctx.write(bytes([0x01, 0x00]))  # VER, STATUS (SUCCESS)
             self._authenticated = True
             self._after_authenticated = True
@@ -155,9 +146,7 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
             if len(self._buffer) < 2:  # VER, NMETHODS
                 return
             if self._buffer[0] != 0x05:
-                pstderr(f"[SOCKS5 Proxy|Handshake] Unsupported SOCKS version: {self._buffer[0]}")
-                ctx.close()
-                return
+                raise ValueError(f"[SOCKS5 Proxy|Handshake] Unsupported SOCKS version: {self._buffer[0]}")
             nmethods = self._buffer[1]
             if len(self._buffer) < 2 + nmethods:
                 return
@@ -166,9 +155,7 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
             # Send METHOD SELECTION MESSAGE
             # pstderr(f"[SOCKS5 Proxy] Selecting authentication method: {methods}")
             if self._proxy_username and self._proxy_password and 0x02 not in methods:
-                pstderr("[SOCKS5 Proxy] USERNAME/PASSWORD authentication required but not set by client")
-                ctx.close()
-                return
+                raise ValueError("[SOCKS5 Proxy] USERNAME/PASSWORD authentication required but not set by client")
             if 0x02 in methods:
                 # pstderr("[SOCKS5 Proxy] Using USERNAME/PASSWORD authentication")
                 ctx.write(bytes([0x05, 0x02]))  # VER, METHOD (USERNAME/PASSWORD)
@@ -178,16 +165,13 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
                 self._handshake_done = True
                 return
             else:
-                pstderr("[SOCKS5 Proxy] No acceptable authentication methods")
-                ctx.close()
-                return
+                raise ValueError(f"[SOCKS5 Proxy] No acceptable authentication methods: {methods}")
+
         else:               # Handshake done
             if len(self._buffer) < 4:
                 return
             if self._buffer[0] != 0x05 or self._buffer[1] != 0x01 or self._buffer[2] != 0x00:
-                pstderr(f"[SOCKS5 Proxy] Unsupported SOCKS5 request: VER={self._buffer[0]}, CMD={self._buffer[1]}, RSV={self._buffer[2]}")
-                ctx.close()
-                return
+                raise ValueError(f"[SOCKS5 Proxy] Unsupported SOCKS5 request: VER={self._buffer[0]}, CMD={self._buffer[1]}, RSV={self._buffer[2]}")
             addr_type = self._buffer[3]
             if addr_type == 0x01:  # IPv4
                 addr_len = 4
@@ -197,13 +181,9 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
                 addr_len = self._buffer[4] + 1
             elif addr_type == 0x04:  # IPv6
                 # addr_len = 16
-                pstderr("[SOCKS5 Proxy] Unsupported address type: IPv6")
-                ctx.close()
-                return
+                raise ValueError("[SOCKS5 Proxy] Unsupported address type: IPv6")
             else:
-                pstderr(f"[SOCKS5 Proxy] Unsupported address type: {addr_type}")
-                ctx.close()
-                return
+                raise ValueError(f"[SOCKS5 Proxy] Unsupported address type: {addr_type}")
             if len(self._buffer) < 4 + addr_len + 2:
                 return
             # Parse DST.ADDR and DST.PORT
@@ -214,21 +194,11 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
                 dst_addr = self._buffer[5:5 + addr_len - 1].decode()
                 dst_port = int.from_bytes(self._buffer[5 + addr_len - 1:5 + addr_len + 1], 'big')
             else:           # impossible
-                pstderr(f"[SOCKS5 Proxy] Unsupported address type during parsing: {addr_type}")
-                ctx.close()
-                return
-
+                raise ValueError(f"[SOCKS5 Proxy] Unsupported address type: {addr_type}")
             # Create connection to target
             host, port = self._transform_host_port(dst_addr, dst_port)
             get_client_or_create(self.raddr).proxy_socket = self._client_channel(ctx, host, int(port)).socket()
 
-            # Send SERVER RESPONSE
-            # resp = bytearray()
-            # resp.append(0x05)  # VER
-            # resp.append(0x00)  # REP (SUCCEEDED)
-            # resp.append(0x00)  # RSV
-            # resp.append(0x01)  # ATYP (IPv4)
-            # ctx.write(resp + b'\x00\x00\x00\x00' + b'\x00\x00')  # BND.ADDR and BND.PORT
             ctx.write(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')  # Success response
             # Print record
             peer_name, peer_port = ctx.channel().channelinfo().peername

@@ -4,7 +4,7 @@ from ..clients import get_client_or_none
 
 class EchoChannelHandler(ProxyChannelHandler):
 
-    def __init(
+    def __init__(
             self,
             client_eventloop_group,
             tls,
@@ -25,4 +25,5 @@ class EchoChannelHandler(ProxyChannelHandler):
             client.write(len(bytebuf))
 
     def _create_client(self, ctx, bytebuf: bytes | None):
+        # no need to create a client
         pass

@@ -146,7 +146,6 @@ def run_proxy(
             parant_group=EventLoopGroup(1, 'Boss'),
             child_group=EventLoopGroup(workers, 'Worker'),
             child_handler_initializer=lambda: EchoChannelHandler(
-                None, None,
                 client_eventloop_group,
                 tls=tls,
             ),

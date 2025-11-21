@@ -9,6 +9,7 @@ from .utils.osutils import from_cwd, submit_daemon_thread
 from .utils.netutils import getpeername, getsockname
 from py_netty.channel import NioSocketChannel
 from datetime import datetime
+from threading import Thread
 
 _monitor = True
 
@@ -215,8 +216,8 @@ def _clients_check(interval: int = 5):
         time.sleep(interval)
 
 
-def spawn_clients_monitor(interval: int = 5):
-    submit_daemon_thread(_clients_check, interval)
+def spawn_clients_monitor(interval: int = 5) -> Thread:
+    return submit_daemon_thread(_clients_check, interval)
 
 
 def stop_clients_monitor():
