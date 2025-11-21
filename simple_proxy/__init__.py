@@ -76,12 +76,11 @@ class MyHttpHandler(http.server.BaseHTTPRequestHandler):
 @optgroup.option('--monitor', '-m', is_flag=True, help='Print speed info to console for established connection')
 @optgroup.option('--monitor-interval', '-mi', type=int, default=3, help='Speed monitor interval', show_default=True)
 #
-@optgroup.group('Disguise configuration', help='Configuration for protection against unwanted inspection')
+@optgroup.group('TLS Disguise configuration', help='Configuration for protection against unwanted inspection')
 @optgroup.option('--disguise-tls-ip', '-dti', help='Disguised upstream TLS IP')
 @optgroup.option('--disguise-tls-port', '-dtp', type=int, help='Disguised upstream TLS port', default=443, show_default=True)
-@optgroup.option('--white-list', '-wl', help='IP White list for legal incoming connections (comma separated)')
-@optgroup.option('--run-mock-tls-server', is_flag=True, help='Run mock TLS server without using disguise server')
-@optgroup.option('--shadow', is_flag=True, help='Disguise if incoming connection is TLS client request')
+@optgroup.option('--run-disguise-tls-server', is_flag=True, help='Run builtin disguise TLS server without specifying external one')
+@optgroup.option('--white-list', '-wl', help='IP White list for legal incoming TLS connections (comma separated)')
 #
 @optgroup.group('Proxy configuration', help='Configuration for proxy')
 @optgroup.option('--as-echo-server', '-e', is_flag=True, help='Run as Echo server')
@@ -114,8 +113,7 @@ def run_proxy(
         monitor=False, monitor_interval=3,
         disguise_tls_ip=None, disguise_tls_port=443,
         white_list=None,
-        run_mock_tls_server=False,
-        shadow=False,
+        run_disguise_tls_server=False,
         alpn=False,
         http_proxy=False,
         socks5_proxy=False,
@@ -126,15 +124,11 @@ def run_proxy(
         workers=1, proxy_workers=1,
         as_echo_server=False,
 ):
-    if shadow and not (disguise_tls_ip or run_mock_tls_server):
-        pfatal("'--shadow' is not applicable if '--disguise-tls-ip/-dti' or '--run-mock-tls-server' is not specified!")
-    if tls and (disguise_tls_ip or run_mock_tls_server):
-        pfatal("'--tls/-s' is not applicable if disguise is used!")
+    if tls and (disguise_tls_ip or run_disguise_tls_server):
+        pfatal("'--tls/-s' is not applicable if disguise mode is used!")
 
-    if white_list and not (disguise_tls_ip or run_mock_tls_server):
-        pstderr("[WARN] Malicious connection will be dropped immediately when neither '--disguise-tls-ip/-dti' nor '--run-mock-tls-server' is specified!")
-    if (disguise_tls_ip or run_mock_tls_server) and not white_list and not shadow:
-        pstderr("[WARN] Disguise will not take effect when neither '--shadow' nor '--white-list/-wl' is specified")
+    if white_list and not (disguise_tls_ip or run_disguise_tls_server):
+        pstderr("[WARN] Malicious connection will be dropped immediately when neither '--disguise-tls-ip/-dti' nor '--run-disguise-tls-server' is specified!")
 
     white_list0 = white_list or ''
     if white_list:
@@ -156,7 +150,7 @@ def run_proxy(
         else:
             kf, cf = create_temp_key_cert()
 
-    if run_mock_tls_server:
+    if run_disguise_tls_server:
         disguise_tls_ip = 'localhost'
         disguise_tls_port = free_port()
         server_address = (disguise_tls_ip, disguise_tls_port)
@@ -167,7 +161,7 @@ def run_proxy(
                                        certfile=cf_mock,
                                        keyfile=kf_mock,
                                        ssl_version=ssl.PROTOCOL_TLS)
-        pstderr(f"Mock TLS server started listening(https://localhost:{disguise_tls_port}) ...")
+        pstderr(f"Builin disguise TLS server started listening(https://localhost:{disguise_tls_port}) ...")
         submit_daemon_thread(httpd.serve_forever)
 
     client_eventloop_group = EventLoopGroup(proxy_workers, 'Client')
@@ -240,7 +234,6 @@ def run_proxy(
                 content=content, to_file=to_file,
                 disguise_tls_ip=disguise_tls_ip, disguise_tls_port=disguise_tls_port,
                 white_list=white_list,
-                shadow=shadow,
                 alpn=alpn,
                 read_delay_millis=read_delay_millis,
                 write_delay_millis=write_delay_millis,
@@ -251,7 +244,7 @@ def run_proxy(
         )
         disguise = f"https://{disguise_tls_ip}:{disguise_tls_port}" if disguise_tls_ip else 'n/a'
         pstderr(f"Proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} => {remote_server}:{remote_port}{'(TLS)' if tls else ''} ...")
-        pstderr(f"console:{content}, file:{to_file}, disguise:{disguise}, whitelist:{white_list0 or '*'}, shadow:{shadow}")
+        pstderr(f"console:{content}, file:{to_file}, disguise:{disguise}, whitelist:{white_list0 or '*'}")
 
     if monitor:
         spawn_clients_monitor(monitor_interval)
