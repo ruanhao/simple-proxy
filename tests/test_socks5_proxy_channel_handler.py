@@ -1,4 +1,6 @@
-from simple_proxy.handler.socks5_proxy_channel_handler import Socks5ProxyChannelHandler, get_local_peer_to_target_mapping
+from simple_proxy.handler.socks5_proxy_channel_handler import (
+    Socks5ProxyChannelHandler, get_local_peer_to_target_mapping, Socks5State,
+)
 from py_netty import EventLoopGroup
 from simple_proxy.clients import get_clients
 import pytest
@@ -10,6 +12,7 @@ def test_exception_caught(mocker):
     handler = Socks5ProxyChannelHandler(EventLoopGroup())
     ctx_mocker = mocker.MagicMock()
     handler.exception_caught(ctx_mocker, Exception("test exception"))
+    ctx_mocker.write.assert_called_with(b'\x05\x01\x00\x01\x00\x00\x00\x00\x00\x00')
     ctx_mocker.close.assert_called_once()
 
 def test_channel_active(mocker):
@@ -24,6 +27,7 @@ def test_channel_active(mocker):
 
 
 def test_channel_inactive(mocker):
+    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.logger.isEnabledFor', return_value=True)
     handler = Socks5ProxyChannelHandler(EventLoopGroup())
     ctx_mocker = mocker.MagicMock()
     client_mocker = mocker.MagicMock()
@@ -54,69 +58,55 @@ def test_transform_host_port():
     assert handler._transform_host_port("example.com", 80) == ("example.com", 80)
 
 
-def test_channel_read_unsupported_version_during_handshake(mocker):
+def test_channel_read_case_unsupported_version(mocker):
     ctx = mocker.MagicMock()
     handler = Socks5ProxyChannelHandler(EventLoopGroup())
     with pytest.raises(ValueError, match=r"\[SOCKS5 Proxy\|Handshake\] Unsupported SOCKS version: 4"):
         handler.channel_read(ctx, b'\x04\x01\x00\x01')  # SOCKS version 4 is unsupported
 
-def test_channel_read_no_auth_handshake(mocker):
+def test_channel_read_case_handshake_without_auth(mocker):
     ctx = mocker.MagicMock()
     handler = Socks5ProxyChannelHandler(EventLoopGroup())
+    assert handler._socks5_state == Socks5State.HANDSHAKE
     handler.channel_read(ctx, b'\x05')
-    assert not handler._handshake_done
     handler.channel_read(ctx, b'\x01')
-    assert not handler._handshake_done
     handler.channel_read(ctx, b'\x00')
     ctx.write.assert_called_with(b'\x05\x00')  # No authentication
-    assert handler._handshake_done
+    assert handler._socks5_state == Socks5State.REQUEST
 
-def test_channel_read_no_auth_parse_request_case_wrong_version(mocker):
+def test_channel_read_case_request_with_wrong_version(mocker):
     ctx = mocker.MagicMock()
     handler = Socks5ProxyChannelHandler(EventLoopGroup())
     handler.channel_read(ctx, b'\x05\x01\x00')
-    assert handler._handshake_done
     ##
-    with pytest.raises(ValueError, match=r"\[SOCKS5 Proxy] Unsupported SOCKS5 request: VER=4"):
+    with pytest.raises(ValueError, match=r"Unsupported SOCKS5 request: VER=4"):
         handler.channel_read(ctx, b'\x04\x01\x00\x01')  # Wrong version
 
-def test_channel_read_no_auth_parse_request_case_wrong_cmd(mocker):
+def test_channel_read_case_request_with_wrong_cmd(mocker):
     ctx = mocker.MagicMock()
     handler = Socks5ProxyChannelHandler(EventLoopGroup())
     handler.channel_read(ctx, b'\x05\x01\x00')
-    assert handler._handshake_done
     ##
-    with pytest.raises(ValueError, match=r"\[SOCKS5 Proxy] Unsupported SOCKS5 request: VER=5, CMD=2"):
+    with pytest.raises(ValueError, match=r"Unsupported SOCKS5 request: VER=5, CMD=2"):
         handler.channel_read(ctx, b'\x05\x02\x00\x01')  # Wrong cmd
 
-def test_channel_read_no_auth_parse_request_case_wrong_reserved(mocker):
+
+def test_channel_read_case_request_with_ipv6(mocker):
     ctx = mocker.MagicMock()
     handler = Socks5ProxyChannelHandler(EventLoopGroup())
     handler.channel_read(ctx, b'\x05\x01\x00')
-    assert handler._handshake_done
-    ##
-    with pytest.raises(ValueError, match=r"\[SOCKS5 Proxy] Unsupported SOCKS5 request: VER=5, CMD=1, RSV=1"):
-        handler.channel_read(ctx, b'\x05\x01\x01\x01')  # Wrong rsv
-
-
-def test_channel_read_no_auth_parse_request_case_ipv6(mocker):
-    ctx = mocker.MagicMock()
-    handler = Socks5ProxyChannelHandler(EventLoopGroup())
-    handler.channel_read(ctx, b'\x05\x01\x00')
-    assert handler._handshake_done
     ##
     with pytest.raises(ValueError, match=r"Unsupported address type: IPv6"):
         handler.channel_read(ctx, b'\x05\x01\x00\x04')
 
 
-def test_channel_read_no_auth_parse_request_case_ipv4(mocker):
+def test_channel_read_case_request_with_ipv4(mocker):
     mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
     ctx = mocker.MagicMock()
     ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup())
     handler.channel_read(ctx, b'\x05\x01\x00')
-    assert handler._handshake_done
     ##
     assert not handler._negotiated
     handler.channel_read(ctx, b'\x05\x01')
@@ -128,14 +118,34 @@ def test_channel_read_no_auth_parse_request_case_ipv4(mocker):
     assert get_local_peer_to_target_mapping()["127.0.0.1:8080"] == "127.0.0.2:8080"
 
 
-def test_channel_read_no_auth_parse_request_case_domain(mocker):
+def test_channel_read_case_request_with_ipv4_and_transform(mocker):
+    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
+    ctx = mocker.MagicMock()
+    ctx.channel.return_value.channelinfo.return_value.peername = raddr
+    ##
+    handler = Socks5ProxyChannelHandler(
+        EventLoopGroup(),
+        transform=(('127.0.0.2', 8080, 'www.google.com', 9090),)
+    )
+    handler.channel_read(ctx, b'\x05\x01\x00')
+    ##
+    assert not handler._negotiated
+    handler.channel_read(ctx, b'\x05\x01')
+    handler.channel_read(ctx, b'\x00\x01')
+    handler.channel_read(ctx, b'\x7f\x00\x00\x02')  # 127.0.0.2
+    handler.channel_read(ctx, b'\x1f\x90')  # port 8080
+    ctx.write.assert_called_with(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')  # Success response
+    assert handler._negotiated
+    assert get_local_peer_to_target_mapping()["127.0.0.1:8080"] == "www.google.com:9090"
+
+
+def test_channel_read_case_request_with_domain(mocker):
     mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
     ctx = mocker.MagicMock()
     ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup())
     handler.channel_read(ctx, b'\x05\x01\x00')
-    assert handler._handshake_done
     ##
     assert not handler._negotiated
     handler.channel_read(ctx, b'\x05\x01')
@@ -148,79 +158,59 @@ def test_channel_read_no_auth_parse_request_case_domain(mocker):
     assert get_local_peer_to_target_mapping()["127.0.0.1:8080"] == "ruanhao.cc:8080"
 
 
-def test_channel_read_no_auth_parse_request_case_unsupported_addr_type(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
+def test_channel_read_case_request_with_unsupported_addr_type(mocker):
     ctx = mocker.MagicMock()
-    ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup())
     handler.channel_read(ctx, b'\x05\x01\x00')
-    assert handler._handshake_done
     ##
-    assert not handler._negotiated
     handler.channel_read(ctx, b'\x05\x01')
     with pytest.raises(ValueError, match=r"Unsupported address type: 5"):
         handler.channel_read(ctx, b'\x00\x05')
 
 
 
-def test_channel_read_auth_without_auth_method(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
+def test_channel_read_case_without_providing_credential(mocker):
     ctx = mocker.MagicMock()
-    ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
     with pytest.raises(ValueError, match="USERNAME/PASSWORD authentication required but not set by client"):
         handler.channel_read(ctx, b'\x05\x01\x00')
 
 def test_channel_read_case_unsupported_auth_method(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
     ctx = mocker.MagicMock()
-    ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup())
-    assert handler._authenticated
     with pytest.raises(ValueError, match="No acceptable authentication methods:"):
         handler.channel_read(ctx, b'\x05\x01\x05')
 
 
-def test_channel_read_need_auth(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
+def test_channel_read_case_authentication(mocker):
     ctx = mocker.MagicMock()
-    ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
-    assert handler._authenticated
     handler.channel_read(ctx, b'\x05\x01\x02')
     ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
-    assert not handler._authenticated
+    assert handler._socks5_state == Socks5State.AUTHENTICATION
 
 
-def test_channel_read_case_authenticate_while_wrong_version(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
+def test_channel_read_case_authenticate_with_wrong_version(mocker):
     ctx = mocker.MagicMock()
-    ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
-    assert handler._authenticated
     handler.channel_read(ctx, b'\x05\x01\x02')
     ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
-    assert not handler._authenticated
-
-    with pytest.raises(ValueError, match=r"\[SOCKS5 Proxy\|Auth\] Unsupported SOCKS version: 5"):
+    ##
+    with pytest.raises(ValueError, match=r"Unsupported Auth version: 5"):
         handler.channel_read(ctx, b'\x05\x00\x00')
 
 
 def test_channel_read_case_authenticate_with_wrong_password(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
     ctx = mocker.MagicMock()
-    ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
-    assert handler._authenticated
     handler.channel_read(ctx, b'\x05\x01\x02')
     ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
-    assert not handler._authenticated
 
     with pytest.raises(ValueError, match="Authentication failed: cisco/\*\*\*\*\*\*\*\*"):
         handler.channel_read(ctx, b'\x01\x05') # Version 1
@@ -231,147 +221,124 @@ def test_channel_read_case_authenticate_with_wrong_password(mocker):
 
 
 def test_channel_read_case_authenticate_with_correct_password(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
     ctx = mocker.MagicMock()
-    ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
-    assert handler._authenticated
     handler.channel_read(ctx, b'\x05\x01\x02')
     ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
-    assert not handler._authenticated
-    assert not handler._after_authenticated
+
+    handler.channel_read(ctx, b'\x01') # Version 1
+    handler.channel_read(ctx, b'\x05') # Version 1
+    handler.channel_read(ctx, b'cis')
+    handler.channel_read(ctx, b'co')
+    handler.channel_read(ctx, b'\x07') # Password length
+    handler.channel_read(ctx, b'juniper')
+    ctx.write.assert_called_with(b'\x01\x00')
+    assert handler._socks5_state == Socks5State.REQUEST
+
+
+def test_channel_read_case_authenticate_with_unnecessary_password(mocker):
+    ctx = mocker.MagicMock()
+    ##
+    handler = Socks5ProxyChannelHandler(EventLoopGroup())  # No username/password set
+    handler.channel_read(ctx, b'\x05\x01\x02')
+    ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
+
+    handler.channel_read(ctx, b'\x01') # Version 1
+    handler.channel_read(ctx, b'\x05') # Version 1
+    handler.channel_read(ctx, b'cis')
+    handler.channel_read(ctx, b'co')
+    handler.channel_read(ctx, b'\x07') # Password length
+    handler.channel_read(ctx, b'juniper')
+    ctx.write.assert_called_with(b'\x01\x00')
+    assert handler._socks5_state == Socks5State.REQUEST
+
+
+def test_channel_read_case_authenticate_wrong_version_while_request(mocker):
+    ctx = mocker.MagicMock()
+    ##
+    handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
+    handler.channel_read(ctx, b'\x05\x01\x02')
+    ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
+
     handler.channel_read(ctx, b'\x01\x05') # Version 1
     handler.channel_read(ctx, b'cis')
     handler.channel_read(ctx, b'co')
     handler.channel_read(ctx, b'\x07') # Password length
     handler.channel_read(ctx, b'juniper')
-    # ctx.write.assert_has_calls([call(b'\x01\x00')])  # Success authentication
     ctx.write.assert_called_with(b'\x01\x00')
-    assert handler._authenticated
-    assert handler._after_authenticated
 
-
-def test_channel_read_case_authenticate_wrong_version_while_parsing(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
-    ctx = mocker.MagicMock()
-    ctx.channel.return_value.channelinfo.return_value.peername = raddr
-    ##
-    handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
-    assert handler._authenticated
-    handler.channel_read(ctx, b'\x05\x01\x02')
-    ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
-    assert not handler._authenticated
-    assert not handler._after_authenticated
-    handler.channel_read(ctx, b'\x01\x05') # Version 1
-    handler.channel_read(ctx, b'cis')
-    handler.channel_read(ctx, b'co')
-    handler.channel_read(ctx, b'\x07') # Password length
-    handler.channel_read(ctx, b'juniper')
-    # ctx.write.assert_has_calls([call(b'\x01\x00')])  # Success authentication
-    ctx.write.assert_called_with(b'\x01\x00')
-    assert handler._authenticated
-    assert handler._after_authenticated
-
-    with pytest.raises(ValueError, match=r"\[SOCKS5 Proxy\|PostAuth\] Unsupported SOCKS version: 4"):
+    with pytest.raises(ValueError, match=r"Unsupported SOCKS5 request: VER=4"):
         handler.channel_read(ctx, b'\x04\x01\x00\x01')  # Wrong version
 
-def test_channel_read_case_authenticate_wrong_cmd_while_parsing(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
+def test_channel_read_case_authenticate_wrong_cmd_while_request(mocker):
     ctx = mocker.MagicMock()
-    ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
-    assert handler._authenticated
     handler.channel_read(ctx, b'\x05\x01\x02')
     ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
-    assert not handler._authenticated
-    assert not handler._after_authenticated
+
     handler.channel_read(ctx, b'\x01\x05') # Version 1
     handler.channel_read(ctx, b'cis')
     handler.channel_read(ctx, b'co')
     handler.channel_read(ctx, b'\x07') # Password length
     handler.channel_read(ctx, b'juniper')
-    # ctx.write.assert_has_calls([call(b'\x01\x00')])  # Success authentication
     ctx.write.assert_called_with(b'\x01\x00')
-    assert handler._authenticated
-    assert handler._after_authenticated
 
-    with pytest.raises(ValueError, match=r"\[SOCKS5 Proxy\|PostAuth\] Unsupported CMD: 2"):
+    with pytest.raises(ValueError, match=r"Unsupported SOCKS5 request: VER=5, CMD=2"):
         handler.channel_read(ctx, b'\x05\x02\x00\x01')  # Wrong CMD
 
 
-def test_channel_read_case_authenticate_parsing_ipv6(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
+def test_channel_read_case_authenticate_while_request_ipv6(mocker):
     ctx = mocker.MagicMock()
-    ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
-    assert handler._authenticated
     handler.channel_read(ctx, b'\x05\x01\x02')
     ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
-    assert not handler._authenticated
-    assert not handler._after_authenticated
+
     handler.channel_read(ctx, b'\x01\x05') # Version 1
     handler.channel_read(ctx, b'cis')
     handler.channel_read(ctx, b'co')
     handler.channel_read(ctx, b'\x07') # Password length
     handler.channel_read(ctx, b'juniper')
-    # ctx.write.assert_has_calls([call(b'\x01\x00')])  # Success authentication
     ctx.write.assert_called_with(b'\x01\x00')
-    assert handler._authenticated
-    assert handler._after_authenticated
 
-    with pytest.raises(ValueError, match=r"\[SOCKS5 Proxy\|PostAuth\] IPv6 not supported"):
+    with pytest.raises(ValueError, match=r"Unsupported address type: IPv6"):
         handler.channel_read(ctx, b'\x05')
         handler.channel_read(ctx, b'\x01\x00\x04')  # IPv6 address type
 
-def test_channel_read_case_authenticate_parsing_unsupported(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
+def test_channel_read_case_authenticate_while_request_unsupported_addr_type(mocker):
     ctx = mocker.MagicMock()
-    ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
-    assert handler._authenticated
     handler.channel_read(ctx, b'\x05\x01\x02')
     ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
-    assert not handler._authenticated
-    assert not handler._after_authenticated
     handler.channel_read(ctx, b'\x01\x05') # Version 1
     handler.channel_read(ctx, b'cis')
     handler.channel_read(ctx, b'co')
     handler.channel_read(ctx, b'\x07') # Password length
     handler.channel_read(ctx, b'juniper')
-    # ctx.write.assert_has_calls([call(b'\x01\x00')])  # Success authentication
     ctx.write.assert_called_with(b'\x01\x00')
-    assert handler._authenticated
-    assert handler._after_authenticated
 
-    with pytest.raises(ValueError, match=r"\[SOCKS5 Proxy\|PostAuth\] Unsupported ADDR TYPE: 5"):
+    with pytest.raises(ValueError, match=r"Unsupported address type: 5"):
         handler.channel_read(ctx, b'\x05')
-        handler.channel_read(ctx, b'\x01\x00\x05')  # IPv6 address type
+        handler.channel_read(ctx, b'\x01\x00\x05')
 
-def test_channel_read_case_authenticate_parsing_ipv4(mocker):
+def test_channel_read_case_authenticate_while_request_ipv4(mocker):
     mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
     ctx = mocker.MagicMock()
     ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
-    assert handler._authenticated
     handler.channel_read(ctx, b'\x05\x01\x02')
     ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
-    assert not handler._authenticated
-    assert not handler._after_authenticated
+
     handler.channel_read(ctx, b'\x01\x05') # Version 1
     handler.channel_read(ctx, b'cis')
     handler.channel_read(ctx, b'co')
     handler.channel_read(ctx, b'\x07') # Password length
     handler.channel_read(ctx, b'juniper')
-    # ctx.write.assert_has_calls([call(b'\x01\x00')])  # Success authentication
     ctx.write.assert_called_with(b'\x01\x00')
-    assert handler._authenticated
-    assert handler._after_authenticated
-    assert not handler._negotiated
 
     handler.channel_read(ctx, b'\x05')
     handler.channel_read(ctx, b'\x01\x00\x01')  # IPv4 address type
@@ -382,26 +349,21 @@ def test_channel_read_case_authenticate_parsing_ipv4(mocker):
     assert handler._negotiated
 
 
-def test_channel_read_case_authenticate_parsing_domain(mocker):
+def test_channel_read_case_authenticate_while_request_domain(mocker):
     mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
     ctx = mocker.MagicMock()
     ctx.channel.return_value.channelinfo.return_value.peername = raddr
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
-    assert handler._authenticated
     handler.channel_read(ctx, b'\x05\x01\x02')
     ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
-    assert not handler._authenticated
-    assert not handler._after_authenticated
+
     handler.channel_read(ctx, b'\x01\x05') # Version 1
     handler.channel_read(ctx, b'cis')
     handler.channel_read(ctx, b'co')
     handler.channel_read(ctx, b'\x07') # Password length
     handler.channel_read(ctx, b'juniper')
-    # ctx.write.assert_has_calls([call(b'\x01\x00')])  # Success authentication
     ctx.write.assert_called_with(b'\x01\x00')
-    assert handler._authenticated
-    assert handler._after_authenticated
     assert not handler._negotiated
 
     handler.channel_read(ctx, b'\x05')
@@ -415,10 +377,10 @@ def test_channel_read_case_authenticate_parsing_domain(mocker):
 
 
 def test_channel_read_case_negotiated(mocker):
-    mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
     client = mocker.MagicMock()
     ctx = mocker.MagicMock()
     ctx.channel.return_value.channelinfo.return_value.peername = raddr
+    client.channelinfo.return_value.peername = ('8.8.8.8', 53)
     ##
     handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
     handler._negotiated = True

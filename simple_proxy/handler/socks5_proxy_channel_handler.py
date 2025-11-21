@@ -5,16 +5,22 @@ from py_netty.handler import LoggingChannelHandler
 from ..clients import handle_data, get_client_or_create, pop_client
 from ..utils.logutils import pstderr
 from ..utils.netutils import set_keepalive
+from enum import Enum
 
 logger = logging.getLogger(__name__)
 
 _local_peer_to_target_mapping: dict[str, str] = dict()
 
 
+class Socks5State(str, Enum):
+    HANDSHAKE = 'HANDSHAKE'
+    AUTHENTICATION = 'AUTHENTICATION'
+    REQUEST = 'REQUEST'
+
 def get_local_peer_to_target_mapping() -> dict[str, str]:
     return _local_peer_to_target_mapping
 
-
+# https://www.trickster.dev/post/understanding-socks-protocol/
 class Socks5ProxyChannelHandler(LoggingChannelHandler):
     def __init__(
             self,
@@ -26,9 +32,6 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
         self._client_eventloop_group = client_eventloop_group
         self._client = None
         self._negotiated = False
-        self._authenticated = True
-        self._after_authenticated = False
-        self._handshake_done = False
         self._buffer = b''
         self._content = content
         self._to_file = to_file
@@ -36,6 +39,7 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
         self._proxy_username = proxy_username
         self._proxy_password = proxy_password
         self.raddr = None
+        self._socks5_state = Socks5State.HANDSHAKE
 
     def _client_channel(self, ctx0, ip, port):
 
@@ -57,6 +61,8 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
 
     def exception_caught(self, ctx, exception):
         super().exception_caught(ctx, exception)
+        if not self._negotiated:
+            ctx.write(b'\x05\x01\x00\x01\x00\x00\x00\x00\x00\x00')  # General SOCKS server failure
         ctx.close()
 
     def channel_active(self, ctx):
@@ -81,132 +87,97 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
         else:
             pstderr(f"[SOCKS5 Proxy] Connection requests : {channel_id} | {peer} | {host0}:{port0} > {host}:{port}")
 
+
     def channel_read(self, ctx, bytebuf):  # noqa
         if self._negotiated:
             self._client.write(bytebuf)
             handle_data(bytebuf, True, ctx.channel(), self._client, self._content, self._to_file)
             return
         self._buffer += bytebuf
-        if self._after_authenticated:
-            if len(self._buffer) < 4:
-                return
-            if self._buffer[0] != 0x05:
-                raise ValueError(f"[SOCKS5 Proxy|PostAuth] Unsupported SOCKS version: {self._buffer[0]}")
-            if self._buffer[1] != 0x01:
-                raise ValueError(f"[SOCKS5 Proxy|PostAuth] Unsupported CMD: {self._buffer[1]}")
-            addr_type = self._buffer[3]
-            if addr_type == 0x01:  # IPv4
-                if len(self._buffer) < 10:
+        while True:
+            # print("=== SOCKS5 STATE:", self._socks5_state, "BUFFER LEN:", len(self._buffer))
+            if self._socks5_state == Socks5State.HANDSHAKE:
+                if len(self._buffer) < 2:  # VER, NMETHODS
                     return
-                addr = socket.inet_ntoa(self._buffer[4:8])
-                port = int.from_bytes(self._buffer[8:10], 'big')
-            elif addr_type == 0x03:  # Domain name
-                if len(self._buffer) < 5:
+                if self._buffer[0] != 0x05:
+                    raise ValueError(f"[SOCKS5 Proxy|Handshake] Unsupported SOCKS version: {self._buffer[0]}")
+                nmethods = self._buffer[1]
+                if len(self._buffer) < 2 + nmethods:
                     return
-                domain_length = self._buffer[4]
-                if len(self._buffer) < 5 + domain_length + 2:
-                    return
-                addr = self._buffer[5:5 + domain_length].decode('utf-8')
-                port = int.from_bytes(self._buffer[5 + domain_length:5 + domain_length + 2], 'big')
-            elif addr_type == 0x04:  # IPv6
-                raise ValueError("[SOCKS5 Proxy|PostAuth] IPv6 not supported")
-            else:
-                raise ValueError(f"[SOCKS5 Proxy|PostAuth] Unsupported ADDR TYPE: {addr_type}")
-            origin_addr, origin_port = addr, port
-            host, port = self._transform_host_port(origin_addr, origin_port)
-            get_client_or_create(self.raddr).proxy_socket = self._client_channel(ctx, host, int(port)).socket()
-            ctx.write(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')  # Success response
-            peer_name, peer_port = ctx.channel().channelinfo().peername
-            peer = f"{peer_name}:{peer_port}"
-            get_local_peer_to_target_mapping()[peer] = f"{host}:{port}"
-            self._print_record(ctx.channel().id(), peer, origin_addr, origin_port, host, port)
-            self._buffer = b''
-            self._negotiated = True
-        elif not self._authenticated:
-            if len(self._buffer) < 3:
-                return
-            if self._buffer[0] != 0x01:
-                raise ValueError(f"[SOCKS5 Proxy|Auth] Unsupported SOCKS version: {self._buffer[0]}")
-            ulen = self._buffer[1]
-            if len(self._buffer) < 3 + ulen:
-                return
-            username = self._buffer[2:2 + ulen].decode('utf-8')
-            plen = self._buffer[2 + ulen]
-            if len(self._buffer) < 3 + ulen + plen:
-                return
-            password = self._buffer[3 + ulen:3 + ulen + plen].decode('utf-8')
-            if (username != self._proxy_username) or (password != self._proxy_password):
-                masked_password = '*' * len(password)
-                raise ValueError(f"[SOCKS5 Proxy|Auth] Authentication failed: {username}/{masked_password}")
-            ctx.write(bytes([0x01, 0x00]))  # VER, STATUS (SUCCESS)
-            self._authenticated = True
-            self._after_authenticated = True
-            self._buffer = b''
-        elif not self._handshake_done:
-            if len(self._buffer) < 2:  # VER, NMETHODS
-                return
-            if self._buffer[0] != 0x05:
-                raise ValueError(f"[SOCKS5 Proxy|Handshake] Unsupported SOCKS version: {self._buffer[0]}")
-            nmethods = self._buffer[1]
-            if len(self._buffer) < 2 + nmethods:
-                return
-            methods = self._buffer[2:2 + nmethods]
-            self._buffer = b''
-            # Send METHOD SELECTION MESSAGE
-            # pstderr(f"[SOCKS5 Proxy] Selecting authentication method: {methods}")
-            if self._proxy_username and self._proxy_password and 0x02 not in methods:
-                raise ValueError("[SOCKS5 Proxy] USERNAME/PASSWORD authentication required but not set by client")
-            if 0x02 in methods:
-                # pstderr("[SOCKS5 Proxy] Using USERNAME/PASSWORD authentication")
-                ctx.write(bytes([0x05, 0x02]))  # VER, METHOD (USERNAME/PASSWORD)
-                self._authenticated = False
-            elif 0x00 in methods:
-                ctx.write(bytes([0x05, 0x00]))  # VER, METHOD (NO AUTHENTICATION)
-                self._handshake_done = True
-                return
-            else:
-                raise ValueError(f"[SOCKS5 Proxy] No acceptable authentication methods: {methods}")
+                methods = self._buffer[2:2 + nmethods]
+                self._buffer = self._buffer[2 + nmethods:]
+                # Send METHOD SELECTION MESSAGE
+                if self._proxy_username and self._proxy_password and 0x02 not in methods:
+                    raise ValueError("[SOCKS5 Proxy|Handshake] USERNAME/PASSWORD authentication required but not set by client")
+                if 0x02 in methods:
+                    ctx.write(bytes([0x05, 0x02]))  # VER, METHOD (USERNAME/PASSWORD)
+                    self._socks5_state = Socks5State.AUTHENTICATION
 
-        else:               # Handshake done
-            if len(self._buffer) < 4:
-                return
-            if self._buffer[0] != 0x05 or self._buffer[1] != 0x01 or self._buffer[2] != 0x00:
-                raise ValueError(f"[SOCKS5 Proxy] Unsupported SOCKS5 request: VER={self._buffer[0]}, CMD={self._buffer[1]}, RSV={self._buffer[2]}")
-            addr_type = self._buffer[3]
-            if addr_type == 0x01:  # IPv4
-                addr_len = 4
-            elif addr_type == 0x03:  # DOMAINNAME
-                if len(self._buffer) < 5:
+                elif 0x00 in methods:
+                    ctx.write(bytes([0x05, 0x00]))  # VER, METHOD (NO AUTHENTICATION)
+                    self._socks5_state = Socks5State.REQUEST
+                else:
+                    raise ValueError(f"[SOCKS5 Proxy|Handshake] No acceptable authentication methods: {methods}")
+                if not self._buffer:
                     return
-                addr_len = self._buffer[4] + 1
-            elif addr_type == 0x04:  # IPv6
-                # addr_len = 16
-                raise ValueError("[SOCKS5 Proxy] Unsupported address type: IPv6")
-            else:
-                raise ValueError(f"[SOCKS5 Proxy] Unsupported address type: {addr_type}")
-            if len(self._buffer) < 4 + addr_len + 2:
+            elif self._socks5_state == Socks5State.REQUEST:
+                if len(self._buffer) < 4:
+                    return
+                if self._buffer[0] != 0x05 or self._buffer[1] != 0x01:
+                    raise ValueError(f"[SOCKS5 Proxy|Request] Unsupported SOCKS5 request: VER={self._buffer[0]}, CMD={self._buffer[1]}, RSV={self._buffer[2]}")
+                addr_type = self._buffer[3]
+                if addr_type == 0x01:  # IPv4
+                    if len(self._buffer) < 10:  # VER, CMD, RSV, ATYP, ADDR(4), PORT(2)
+                        return
+                    dst_addr = socket.inet_ntoa(self._buffer[4:8])
+                    dst_port = int.from_bytes(self._buffer[8:10], 'big')
+                elif addr_type == 0x03:  # DOMAINNAME
+                    if len(self._buffer) < 5:
+                        return
+                    domain_length = self._buffer[4]
+                    if len(self._buffer) < 5 + domain_length + 2:  # VER, CMD, RSV, ATYP, DOMAIN LEN, ADDR(dlen), PORT(2)
+                        return
+                    dst_addr = self._buffer[5:5 + domain_length].decode('utf-8')
+                    dst_port = int.from_bytes(self._buffer[5 + domain_length:5 + domain_length + 2], 'big')
+                elif addr_type == 0x04:  # IPv6
+                    raise ValueError("[SOCKS5 Proxy|Request] Unsupported address type: IPv6")
+                else:
+                    raise ValueError(f"[SOCKS5 Proxy|Request] Unsupported address type: {addr_type}")
+                # Create connection to target
+                host, port = self._transform_host_port(dst_addr, dst_port)
+                get_client_or_create(self.raddr).proxy_socket = self._client_channel(ctx, host, int(port)).socket()
+                ctx.write(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')  # Success response
+                # Record the mapping
+                peer_name, peer_port = ctx.channel().channelinfo().peername
+                peer = f"{peer_name}:{peer_port}"
+                get_local_peer_to_target_mapping()[peer] = f"{host}:{port}"
+                self._print_record(ctx.channel().id(), peer, dst_addr, dst_port, host, port)
+                self._buffer = b''
+                self._negotiated = True
                 return
-            # Parse DST.ADDR and DST.PORT
-            if addr_type == 0x01:  # IPv4
-                dst_addr = socket.inet_ntoa(self._buffer[4:8])
-                dst_port = int.from_bytes(self._buffer[8:10], 'big')
-            elif addr_type == 0x03:  # DOMAINNAME
-                dst_addr = self._buffer[5:5 + addr_len - 1].decode()
-                dst_port = int.from_bytes(self._buffer[5 + addr_len - 1:5 + addr_len + 1], 'big')
-            else:           # impossible
-                raise ValueError(f"[SOCKS5 Proxy] Unsupported address type: {addr_type}")
-            # Create connection to target
-            host, port = self._transform_host_port(dst_addr, dst_port)
-            get_client_or_create(self.raddr).proxy_socket = self._client_channel(ctx, host, int(port)).socket()
-
-            ctx.write(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')  # Success response
-            # Print record
-            peer_name, peer_port = ctx.channel().channelinfo().peername
-            peer = f"{peer_name}:{peer_port}"
-            get_local_peer_to_target_mapping()[peer] = f"{host}:{port}"
-            self._print_record(ctx.channel().id(), peer, dst_addr, dst_port, host, port)
-            self._negotiated = True
-            self._buffer = b''
+            else:  # Socks5State.AUTHENTICATION:
+                if len(self._buffer) < 2:
+                    return
+                if self._buffer[0] != 0x01:
+                    raise ValueError(f"[SOCKS5 Proxy|Auth] Unsupported Auth version: {self._buffer[0]}")
+                ulen = self._buffer[1]
+                if len(self._buffer) < 3 + ulen:  # VER, ULEN, UNAME(ulen), PLEN
+                    return
+                username = self._buffer[2:2 + ulen].decode('utf-8')
+                plen = self._buffer[2 + ulen]
+                if len(self._buffer) < 2 + ulen + 1 + plen:  # VER, ULEN, UNAME(ulen), PLEN, PASSWD(plen)
+                    return
+                password = self._buffer[3 + ulen:3 + ulen + plen].decode('utf-8')
+                if self._proxy_username and self._proxy_password:
+                    if (username != self._proxy_username) or (password != self._proxy_password):
+                        masked_password = '*' * len(password)
+                        # ctx.write(bytes([0x01, 0x01]))  # VER, STATUS(FAILURE)
+                        raise ValueError(f"[SOCKS5 Proxy|Auth] Authentication failed: {username}/{masked_password}")
+                ctx.write(bytes([0x01, 0x00]))  # VER, STATUS(SUCCESS)
+                self._socks5_state = Socks5State.REQUEST
+                self._buffer = self._buffer[3 + ulen + plen:]
+                if not self._buffer:
+                    return
 
     def channel_inactive(self, ctx):
         super().channel_inactive(ctx)
