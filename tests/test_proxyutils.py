@@ -1,6 +1,15 @@
 import pytest
 from simple_proxy.utils import parse_proxy_info, trim_proxy_info
 
+def test_parse_proxy_info_case_no_auth():
+    proxy_info = parse_proxy_info("""CONNECT dev.finditnm.com:443 HTTP/1.1\r\n
+Host: dev.finditnm.com:443\r\n
+User-Agent: curl/8.7.1\r\n
+Proxy-Connection: Keep-Alive\r\n\r\n""")
+    assert proxy_info.host == "dev.finditnm.com"
+    assert proxy_info.port == 443
+    assert not proxy_info.username
+    assert not proxy_info.password
 
 def test_parse_proxy_info_case_common():
     proxy_info = parse_proxy_info("""CONNECT dev.finditnm.com:443 HTTP/1.1\r\n
@@ -70,6 +79,7 @@ def test_parse_proxy_info_case_http_proxy_with_port():
 
 
 def test_trim_proxy_info():
+    assert not trim_proxy_info(b'')
     raw = b"""GET http://dev.finditnm.com:8080/ HTTP/1.1\r
 Host: dev.finditnm.com:8080\r
 Proxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r
@@ -84,3 +94,17 @@ Proxy-Connection: Keep-Alive\r\n\r\n"""
     assert 'Accept' in trimmed_str
     assert 'GET' in trimmed_str
     assert 'HTTP/1.1' in trimmed_str
+
+
+def test_parse_proxy_info_case_connect_not_match():
+    with pytest.raises(ValueError, match="Invalid CONNECT request format"):
+        parse_proxy_info("""CONNECT dev.finditnm.com:443 KTTP/1.1\r\n
+Host: dev.finditnm.com:443\r\n
+Proxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\n
+User-Agent: curl/8.7.1\r\n
+Proxy-Connection: Keep-Alive\r\n\r\n""")
+
+
+def test_parse_proxy_info_case_invalid_host_header():
+    with pytest.raises(ValueError, match="Invalid Host header format"):
+        parse_proxy_info("""GET http://dev.finditnm.com/ HTTP/1.1\r\nHost: dev.finditnm.com:https\r\nProxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")

@@ -17,6 +17,8 @@ def test_random_string():
 def test_pretty_bytes():
     assert pretty_bytes(1) == '1B'
     assert pretty_bytes(1024) == '1024B'
+    assert pretty_bytes(2048) == '2K'
+    assert pretty_bytes(3500) == '3.4K'
     assert pretty_bytes(1025 * 1024) == '1M'
     assert pretty_bytes(60 * 1024 * 1024) == '60M'
 
