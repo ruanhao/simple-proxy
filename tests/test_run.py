@@ -12,6 +12,13 @@ def test_run_proxy_case_tls_mode_with_both_disguise_ip_and_server():
             run_disguise_tls_server=True,
         )
 
+    with pytest.raises(SystemExit):
+        run_proxy(
+            tls=False, ss=True,
+            disguise_tls_ip='1.2.3.4',
+            run_disguise_tls_server=True,
+        )
+
 def test_run_proxy_case_tcp_proxy(mocker):
     ServerBoostrapMocker = mocker.patch('simple_proxy.run.ServerBootstrap')
     run_proxy(
@@ -19,7 +26,7 @@ def test_run_proxy_case_tcp_proxy(mocker):
         remote_server="www.google.com", remote_port=80,
         using_global=True,
         content=True, to_file=True,
-        tls=False, ss=True,
+        tls=False, ss=False,
         key_file="/tmp/key.pem", cert_file="/tmp/cert.pem",
         monitor=False,
         monitor_interval=3,
@@ -35,8 +42,8 @@ def test_run_proxy_case_tcp_proxy(mocker):
     kwargs = ServerBoostrapMocker.call_args[1]
     assert kwargs['parant_group'].num == 1
     assert kwargs['child_group'].num == 2
-    assert kwargs['certfile'] == "/tmp/cert.pem"
-    assert kwargs['keyfile'] == "/tmp/key.pem"
+    assert kwargs['certfile'] is None
+    assert kwargs['keyfile'] is None
     assert kwargs['ssl_context_cb']
 
     proxy_channel_handler = kwargs['child_handler_initializer']()
@@ -208,7 +215,7 @@ def test_run_disguise_tls_server(mocker):
         remote_server="www.google.com", remote_port=80,
         using_global=True,
         content=True, to_file=True,
-        tls=False, ss=True,
+        tls=False, ss=False,
         key_file="/tmp/key.pem", cert_file="/tmp/cert.pem",
         monitor=False,
         monitor_interval=3,

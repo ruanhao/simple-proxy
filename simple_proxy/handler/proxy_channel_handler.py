@@ -30,6 +30,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
         self._client_eventloop_group = client_eventloop_group
         self._tls = tls
         self._client = None
+        self._allowed: bool = True
         self._content = content
         self._to_file = to_file
 
@@ -107,27 +108,29 @@ class ProxyChannelHandler(LoggingChannelHandler):
         if self._client:
             return
 
-        allowed: bool = (
+        need_disguise: bool = bool(self._disguise_tls_ip and self._disguise_tls_port)
+        self._allowed: bool = need_disguise or (
                 not self._white_list or
                 check_ip_patterns(self._white_list, ctx.channel().socket().getpeername()[0])
         )
 
-        need_disguise: bool = bool(self._disguise_tls_ip and self._disguise_tls_port)
-
-        if bytebuf is None and need_disguise and allowed:
+        if bytebuf is None and need_disguise and self._allowed:
             # traffic is allowed, but we don't know yet if it's TLS
             # need to wait for the first packets
+            # pstderr(f"Waiting for first packets to decide disguise for visitor: {ctx.channel()}")
             return
 
-        if not allowed:
-            pstderr(f"Malicious visitor: {ctx.channel()}")
+        if not self._allowed:
+            # pstderr(f"Malicious visitor: {ctx.channel()}")
             if need_disguise:
+                logger.debug("Disguise for visitor: %s", ctx.channel())
                 self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
             else:
+                pstderr(f"Kick out not-allowed visitor: {ctx.channel()}")
                 ctx.close()
                 return
         elif need_disguise and bytebuf[0:2] == b'\x16\x03':
-            pstderr(f"Malicious TLS visitor: {ctx.channel()}")
+            logger.debug("Disguise for TLS visitor: %s", ctx.channel())
             self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
         else:
             self._client_channel(ctx, self._remote_host, self._remote_port)
@@ -135,6 +138,8 @@ class ProxyChannelHandler(LoggingChannelHandler):
 
     def channel_read(self, ctx, bytebuf):
         super().channel_read(ctx, bytebuf)
+        if not self._allowed:
+            return
         self._create_client(ctx, bytebuf)
         handle_data(bytebuf, True, ctx.channel(), self._client, self._content, self._to_file)
         if self._write_delay_millis > 0:

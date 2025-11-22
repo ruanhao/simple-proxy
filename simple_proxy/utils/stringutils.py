@@ -65,5 +65,4 @@ def check_ip_patterns(patterns: list[str], s: str) -> bool:
         if re.search(pattern, s):
             _get_logger().debug(f"pattern {pattern} matched {s}")
             return True
-    _get_logger().warning(f"no pattern matched {s}")
     return False

@@ -58,6 +58,9 @@ def run_proxy(
     if tls and (disguise_tls_ip or run_disguise_tls_server):
         pfatal("'--tls/-s' is not applicable if disguise mode is used!")
 
+    if ss and (disguise_tls_ip or run_disguise_tls_server):
+        pfatal("'-ss' is not applicable if disguise mode is used!")
+
     if white_list and not (disguise_tls_ip or run_disguise_tls_server):
         pstderr("[WARN] Malicious connection will be dropped immediately when neither '--disguise-tls-ip/-dti' nor '--run-disguise-tls-server' is specified!")
 
