@@ -41,6 +41,43 @@ def test_create_client_case_disguise_and_wait_for_traffic(mocker):
     handler._client = mocker.MagicMock()
     handler._create_client(None, None)  # no exception should be raised
 
+def test_create_client_case_non_whitelist_with_disguise(mocker):
+    handler = ProxyChannelHandler(
+        "1.2.3.4", 9090, EventLoopGroup(),
+        disguise_tls_ip="4.3.2.1",
+    )
+    ctx_mocker = mocker.MagicMock()
+    ctx_mocker.channel.return_value.socket.return_value.getpeername.return_value = ("10.1.0.1", 12345)
+    client_mocker = mocker.MagicMock()
+    client_mocker.channelinfo.return_value.peername = ('8.8.8.8', 53)
+    BoostrapMocker = mocker.patch(  # noqa
+        'simple_proxy.handler.proxy_channel_handler.Bootstrap'
+    )
+    BoostrapMocker.return_value.connect.return_value.sync.return_value.channel.return_value = client_mocker
+
+    handler._create_client(ctx_mocker, b'\x16\x03\x01')
+    assert BoostrapMocker().connect.call_args[0] == ("4.3.2.1", 443, True)
+    assert handler._client is client_mocker
+
+def test_create_client_case_non_whitelist_with_disguise_but_not_tls(mocker):
+    handler = ProxyChannelHandler(
+        "1.2.3.4", 9090, EventLoopGroup(),
+        disguise_tls_ip="4.3.2.1",
+    )
+    ctx_mocker = mocker.MagicMock()
+    ctx_mocker.channel.return_value.socket.return_value.getpeername.return_value = ("10.1.0.1", 12345)
+    client_mocker = mocker.MagicMock()
+    client_mocker.channelinfo.return_value.peername = ('8.8.8.8', 53)
+    BoostrapMocker = mocker.patch(  # noqa
+        'simple_proxy.handler.proxy_channel_handler.Bootstrap'
+    )
+    BoostrapMocker.return_value.connect.return_value.sync.return_value.channel.return_value = client_mocker
+
+    handler._create_client(ctx_mocker, b'\x15\x03\x01')
+    assert BoostrapMocker().connect.call_args[0] == ("1.2.3.4", 9090, True)
+    assert handler._client is client_mocker
+
+
 def test_create_client_case_not_allowed_with_disguise(mocker):
     handler = ProxyChannelHandler(
         "1.2.3.4", 9090, EventLoopGroup(),
@@ -58,7 +95,6 @@ def test_create_client_case_not_allowed_with_disguise(mocker):
     handler._create_client(ctx_mocker, b'\x16\x03\x01')
     assert BoostrapMocker().connect.call_args[0] == ("4.3.2.1", 443, True)
     assert handler._client is client_mocker
-    assert handler._allowed # disguise can be seen as allowed
 
 
 def test_create_client_case_not_allowed(mocker):
@@ -70,10 +106,10 @@ def test_create_client_case_not_allowed(mocker):
     ctx_mocker.channel.return_value.socket.return_value.getpeername.return_value = ("10.1.0.1", 12345)
     handler._create_client(ctx_mocker, b'\x16\x03\x01')
     ctx_mocker.close.assert_called_once()
-    assert not handler._allowed
+    assert handler._abort
 
 
-def test_create_client_case_allowed_while_need_disguise(mocker):
+def test_create_client_case_allowed(mocker):
     handler = ProxyChannelHandler(
         "1.2.3.4", 9090, EventLoopGroup(),
         disguise_tls_ip="4.3.2.1", white_list=["10.1.0.*"],
@@ -89,8 +125,7 @@ def test_create_client_case_allowed_while_need_disguise(mocker):
 
     handler._create_client(ctx_mocker, b'\x16\x03\x01')
     assert handler._client is client_mocker
-    assert BoostrapMocker().connect.call_args[0] == ("4.3.2.1", 443, True)
-    assert handler._allowed
+    assert BoostrapMocker().connect.call_args[0] == ("1.2.3.4", 9090, True)
 
 
 def test_create_client_case_allowed_while_need_disguise_but_not_tls(mocker):
@@ -110,7 +145,6 @@ def test_create_client_case_allowed_while_need_disguise_but_not_tls(mocker):
     handler._create_client(ctx_mocker, b'\x15\x03\x01')
     assert handler._client is client_mocker
     assert BoostrapMocker().connect.call_args[0] == ("1.2.3.4", 9090, True)
-    assert handler._allowed
 
 
 def test_create_client_case_no_wl_and_disguise_configured(mocker):
