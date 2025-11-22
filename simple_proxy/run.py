@@ -43,7 +43,7 @@ def run_proxy(
         key_file=None, cert_file=None,
         monitor=False, monitor_interval=3,
         disguise_tls_ip=None, disguise_tls_port=443,
-        white_list=None,
+        white_list: str = None,
         run_disguise_tls_server=False,
         alpn=False,
         http_proxy=False,
