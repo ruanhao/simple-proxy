@@ -8,6 +8,7 @@ from ..utils.netutils import set_keepalive
 from ..utils.logutils import pstderr
 from ..utils.stringutils import check_ip_patterns
 import logging
+from py_netty import EventLoopGroup
 
 logger = logging.getLogger(__name__)
 
@@ -15,14 +16,14 @@ logger = logging.getLogger(__name__)
 class ProxyChannelHandler(LoggingChannelHandler):
     def __init__(
             self,
-            remote_host, remote_port,
-            client_eventloop_group,
-            tls=False, content=False, to_file=False,
-            disguise_tls_ip=None, disguise_tls_port=None,
-            white_list=None,
-            alpn=False,
-            read_delay_millis=0,
-            write_delay_millis=0,
+            remote_host: str, remote_port: int,
+            client_eventloop_group: EventLoopGroup,
+            tls: bool = False, content: bool = False, to_file: bool = False,
+            disguise_tls_ip: str = None, disguise_tls_port: int = 443,
+            white_list: list[str] = None,
+            alpn: bool = False,
+            read_delay_millis: int = 0,
+            write_delay_millis: int = 0,
     ):
         self._remote_host = remote_host
         self._remote_port = remote_port
@@ -106,20 +107,28 @@ class ProxyChannelHandler(LoggingChannelHandler):
         if self._client:
             return
 
-        if self._disguise_tls_ip and bytebuf is None:
-            # wait for the first packet
+        allowed: bool = (
+                not self._white_list or
+                check_ip_patterns(self._white_list, ctx.channel().socket().getpeername()[0])
+        )
+
+        need_disguise: bool = bool(self._disguise_tls_ip and self._disguise_tls_port)
+
+        if bytebuf is None and need_disguise and allowed:
+            # traffic is allowed, but we don't know yet if it's TLS
+            # need to wait for the first packets
             return
 
-        if self._disguise_tls_ip and bytebuf[0:2] == b'\x16\x03':
-            pstderr(f"Malicious TLS visitor: {ctx.channel()}")
-            self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
-        elif self._white_list and not check_ip_patterns(self._white_list, ctx.channel().socket().getpeername()[0]):
+        if not allowed:
             pstderr(f"Malicious visitor: {ctx.channel()}")
-            if self._disguise_tls_ip and self._disguise_tls_port:
+            if need_disguise:
                 self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
             else:
                 ctx.close()
                 return
+        elif need_disguise and bytebuf[0:2] == b'\x16\x03':
+            pstderr(f"Malicious TLS visitor: {ctx.channel()}")
+            self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
         else:
             self._client_channel(ctx, self._remote_host, self._remote_port)
         get_client_or_create(self.raddr).proxy_socket = self._client.socket()
