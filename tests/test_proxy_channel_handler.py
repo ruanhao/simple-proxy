@@ -58,6 +58,7 @@ def test_create_client_case_not_allowed_with_disguise(mocker):
     handler._create_client(ctx_mocker, b'\x16\x03\x01')
     assert BoostrapMocker().connect.call_args[0] == ("4.3.2.1", 443, True)
     assert handler._client is client_mocker
+    assert handler._allowed # disguise can be seen as allowed
 
 
 def test_create_client_case_not_allowed(mocker):
@@ -69,6 +70,7 @@ def test_create_client_case_not_allowed(mocker):
     ctx_mocker.channel.return_value.socket.return_value.getpeername.return_value = ("10.1.0.1", 12345)
     handler._create_client(ctx_mocker, b'\x16\x03\x01')
     ctx_mocker.close.assert_called_once()
+    assert not handler._allowed
 
 
 def test_create_client_case_allowed_while_need_disguise(mocker):
@@ -88,6 +90,7 @@ def test_create_client_case_allowed_while_need_disguise(mocker):
     handler._create_client(ctx_mocker, b'\x16\x03\x01')
     assert handler._client is client_mocker
     assert BoostrapMocker().connect.call_args[0] == ("4.3.2.1", 443, True)
+    assert handler._allowed
 
 
 def test_create_client_case_allowed_while_need_disguise_but_not_tls(mocker):
@@ -107,6 +110,7 @@ def test_create_client_case_allowed_while_need_disguise_but_not_tls(mocker):
     handler._create_client(ctx_mocker, b'\x15\x03\x01')
     assert handler._client is client_mocker
     assert BoostrapMocker().connect.call_args[0] == ("1.2.3.4", 9090, True)
+    assert handler._allowed
 
 
 def test_create_client_case_no_wl_and_disguise_configured(mocker):
