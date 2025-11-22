@@ -30,7 +30,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
         self._client_eventloop_group = client_eventloop_group
         self._tls = tls
         self._client = None
-        self._allowed: bool = True
+        self._abort: bool = False
         self._content = content
         self._to_file = to_file
 
@@ -109,36 +109,41 @@ class ProxyChannelHandler(LoggingChannelHandler):
             return
 
         need_disguise: bool = bool(self._disguise_tls_ip and self._disguise_tls_port)
-        self._allowed: bool = need_disguise or (
-                not self._white_list or
-                check_ip_patterns(self._white_list, ctx.channel().socket().getpeername()[0])
-        )
 
-        if bytebuf is None and need_disguise and self._allowed:
-            # traffic is allowed, but we don't know yet if it's TLS
-            # need to wait for the first packets
-            # pstderr(f"Waiting for first packets to decide disguise for visitor: {ctx.channel()}")
+        # case 1:
+        # no white list
+        # need disguise, only for TLS probe traffic, this means proxied traffic should not be https
+        if not self._white_list and need_disguise:
+            if bytebuf is None:
+                # need to wait for first packets (if it is TLS) to decide disguise
+                return
+            if bytebuf[0:2] == b'\x16\x03':
+                logger.debug("Disguise for TLS visitor: %s", ctx.channel())
+                self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
+                get_client_or_create(self.raddr).proxy_socket = self._client.socket()
+                return
+
+        # case 2:
+        # has white list and not allowed
+        # close
+        if self._white_list and not check_ip_patterns(self._white_list, ctx.channel().socket().getpeername()[0]):
+            if need_disguise:
+                self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
+                get_client_or_create(self.raddr).proxy_socket = self._client.socket()
+                return
+            pstderr(f"Kick out not-allowed visitor: {ctx.channel()}")
+            ctx.close()
+            self._abort = True
             return
 
-        if not self._allowed:
-            # pstderr(f"Malicious visitor: {ctx.channel()}")
-            if need_disguise:
-                logger.debug("Disguise for visitor: %s", ctx.channel())
-                self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
-            else:
-                pstderr(f"Kick out not-allowed visitor: {ctx.channel()}")
-                ctx.close()
-                return
-        elif need_disguise and bytebuf[0:2] == b'\x16\x03':
-            logger.debug("Disguise for TLS visitor: %s", ctx.channel())
-            self._client_channel(ctx, self._disguise_tls_ip, self._disguise_tls_port)
-        else:
-            self._client_channel(ctx, self._remote_host, self._remote_port)
+        # case 3: (others)
+        # just do proxy
+        self._client_channel(ctx, self._remote_host, self._remote_port)
         get_client_or_create(self.raddr).proxy_socket = self._client.socket()
 
     def channel_read(self, ctx, bytebuf):
         super().channel_read(ctx, bytebuf)
-        if not self._allowed:
+        if self._abort:
             return
         self._create_client(ctx, bytebuf)
         handle_data(bytebuf, True, ctx.channel(), self._client, self._content, self._to_file)

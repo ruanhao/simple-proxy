@@ -2,7 +2,7 @@
 
 A very simple TCP proxy tool empowered by nio tcp framework [py-netty](https://pypi.org/project/py-netty/)
 
-Traffic control is negociated between 2 segments of TCP connection:
+There is a simple traffic control mechenism between 2 segments of TCP connection:
 
 ```
 USER <---------> simple-proxy <---------> REAL SERVER
@@ -14,7 +14,7 @@ USER <---------> simple-proxy <---------> REAL SERVER
 ## Installation
 
 ```bash
-pip install simple-proxy
+pip install simple-proxy -U
 ```
 
 ## Usage
@@ -23,37 +23,70 @@ pip install simple-proxy
 Usage: simple-proxy [OPTIONS]
 
 Options:
-  -l, --local-server TEXT         Local server address  [default: localhost]
-  -lp, --local-port INTEGER       Local port  [default: 8080]
-  -r, --remote-server TEXT        Remote server address  [default: localhost]
-  -rp, --remote-port INTEGER      Remote port  [default: 80]
-  -g, --global                    Listen on 0.0.0.0
-  --workers INTEGER               Number of worker threads  [default: 1]
-  --proxy-workers INTEGER         Number of proxy threads  [default: 1]
-  -c, --tcp-flow                  Dump tcp flow on to console
-  -f, --save-tcp-flow             Save tcp flow to file
-  -s, --tls                       Denote remote server listening on secure port
-  -ss                             Denote local sever listening on secure port
-  -kf, --key-file PATH            Key file for local server
-  -cf, --cert-file PATH           Certificate file for local server
-  -sm, --speed-monitor            Print speed info to console for established connection
-  -smi, --speed-monitor-interval INTEGER
-                                  Speed monitor interval  [default: 3]
-  -dti, --disguise-tls-ip TEXT    Disguise TLS IP
-  -dtp, --disguise-tls-port INTEGER
-                                  Disguise TLS port  [default: 443]
-  -wl, --white-list TEXT          IP White list for incoming connections (comma separated)
-  --run-mock-tls-server           Run mock TLS server
-  --shadow                        Disguise if incoming connection is TLS client request
-  --alpn                          Set ALPN protocol as [h2, http/1.1]
-  --http-proxy                    HTTP proxy mode
-  -t, --http-proxy-transform <TEXT INTEGER TEXT INTEGER>...
-                                  HTTP proxy transform(host, port, transformed_host, transformed_port)
-  --shell-proxy                   Shell proxy mode
-  -v, --verbose
-  --read-delay-millis INTEGER     Read delay in milliseconds (only apply to TCP proxy mode)  [default: 0]
-  --write-delay-millis INTEGER    Write delay in milliseconds (only apply to TCP proxy mode)  [default: 0]
-  --log-file PATH                 Log file
+  Common configuration:           Configuration for local/remote
+                                  endpoints
+    -l, --local-server TEXT       Local server address  [default:
+                                  localhost]
+    -lp, --local-port INTEGER     Local port  [default: 8080]
+    -g, --global                  Local port listening on all
+                                  interfaces
+    -r, --remote-server TEXT      Remote server address  [default:
+                                  localhost]
+    -rp, --remote-port INTEGER    Remote port  [default: 80]
+    -s, --tls                     Denote remote is listening on
+                                  secure port
+    -ss                           Make local listen on secure port
+  TCP proxy configuration:        Configuration for TCP proxy mode
+    --read-delay-millis INTEGER   Read delay in milliseconds
+                                  [default: 0]
+    --write-delay-millis INTEGER  Write delay in milliseconds
+                                  [default: 0]
+  Thread configuration:           Configuration for thread pool
+    --workers INTEGER             Number of worker threads
+                                  [default: 1]
+    --proxy-workers INTEGER       Number of proxy threads  [default:
+                                  1]
+  Traffic dump configuration:     Configuration for traffic dump
+    -c, --tcp-flow                Dump tcp flow on to console
+    -f, --save-tcp-flow           Save tcp flow to file
+  TLS certificate configuration: 
+                                  Configuration for TLS certificate
+    -kf, --key-file PATH          Key file for local server
+    -cf, --cert-file PATH         Certificate file for local server
+    --alpn                        Set ALPN protocol as [h2,
+                                  http/1.1]
+  Traffic monitor configuration: 
+                                  Configuration for traffic monitor
+    -m, --monitor                 Print speed info to console for
+                                  established connection
+    -mi, --monitor-interval INTEGER
+                                  Speed monitor interval  [default:
+                                  3]
+  TLS Disguise configuration:     Configuration for protection
+                                  against unwanted inspection
+    -dti, --disguise-tls-ip TEXT  Disguised upstream TLS IP
+    -dtp, --disguise-tls-port INTEGER
+                                  Disguised upstream TLS port
+                                  [default: 443]
+    --run-disguise-tls-server     Run builtin disguise TLS server
+                                  without specifying external one
+    -wl, --white-list TEXT        IP White list for legal incoming
+                                  TLS connections (comma separated)
+  Proxy configuration:            Configuration for proxy
+    -e, --as-echo-server          Run as Echo server
+    --shell-proxy                 Run as shell proxy server
+    --http-proxy                  Run as HTTP proxy server
+    --socks5-proxy                Run as SOCKS5 proxy server
+    --proxy-username TEXT         Proxy username
+    --proxy-password TEXT         Proxy password
+    -t, --proxy-transform <TEXT INTEGER TEXT INTEGER>...
+                                  List of target
+                                  transformations(origin_host,
+                                  origin_port, transformed_host,
+                                  transformed_port)
+  Misc configuration: 
+    -v, --verbose
+    --log-file PATH               Log file
   --version                       Show the version and exit.
   -h, --help                      Show this message and exit.
 ```
@@ -91,7 +124,7 @@ console:True, file:True, disguise:n/a, whitelist:*
 
 ### Connection status monitor
 ```commandline
-> $ simple-proxy -r echo-server.proxy.com -rp 8080 -lp 48080 --speed-monitor
+> $ simple-proxy -r echo-server.proxy.com -rp 8080 -lp 48080 --monitor
 Proxy server started listening: localhost:48080 => echo-server.proxy.com:8080 ...
 console:False, file:False, disguise:n/a, whitelist:*
 Connection opened: ('127.0.0.1', 60937)
@@ -114,12 +147,31 @@ Connection opened: ('127.0.0.1', 60944)
 Average Read Speed:  32765.0 bytes/s, Average Write Speed: 32752.88 bytes/s
 ```
 
+### Echo Server
+```commandline
+> simple-proxy --as-echo-server
+
+```
+
+
 ### HTTP Proxy
 You can set global envs *https_proxy* or *https_proxy* after http proxy server startd.
 ```commandline
 > simple-proxy --http-proxy
 
-> simple-proxy --http-proxy --http-proxy-transform www.google.com 443 man-in-middle.com 8443
+> simple-proxy --http-proxy --proxy-username=test --proxy-password=test
+
+> simple-proxy --http-proxy --proxy-transform www.google.com 443 man-in-middle.com 8443
+```
+
+### SOCKS5 Proxy
+You can set global envs *https_proxy* or *https_proxy* after socks5 proxy server startd.
+```commandline
+> simple-proxy --socks5-proxy 
+
+> simple-proxy --socks5-proxy --proxy-username=test --proxy-password=test
+
+> simple-proxy --socks5-proxy --proxy-transform www.google.com 443 man-in-middle.com 8443
 ```
 
 ### Shell Proxy
@@ -141,7 +193,11 @@ Any connection beyond whitelist will be served by a mock https server. Real serv
 For example, you can protect your Scurrying Squirrel against attack from Grim Foolish Weasel.
 
 ```commandline
-> simple-proxy -rp 8388 -lp 443 -g  --run-mock-tls-server -wl=<your ip>,<your wife's ip>,<your friend's wife's ip> 
+> simple-proxy -rp 8388 -lp 443 -g  --run-disguise-tls-server -wl=<your ip>,<your girlfriend's ip>,<your friend's girlfriend's ip>
+# only you and your girlfriends can access :8388
+
+> simple-proxy -rp 8388 -lp 443 -g  --disguise-tls-ip=www.google.com --disguise-tls-port=443
+# only non-https can access :8388, https traffic through :443 will be directed to google
 ```
 
 ![joey](https://raw.githubusercontent.com/ruanhao/simple-proxy/master/img/joey.png)
