@@ -4,6 +4,14 @@ import time
 import logging
 import threading
 
+
+class TestOS:
+
+    def test_os(self):
+        print("test os")
+        pass
+
+
 def test_from_cwd():
     ts_str = str(int(time.time()))
     test_path = from_cwd('test_dir', ts_str, 'test_file.txt')
@@ -14,6 +22,7 @@ def test_from_cwd():
 def test_submit_daemon_thread(caplog):
     result = []
     logger = logging.getLogger(__name__)
+
     def sample_function(x, y):
         time.sleep(0.1)
         result.append(x + y)
