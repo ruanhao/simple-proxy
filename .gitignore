@@ -160,3 +160,4 @@ cython_debug/
 .idea/
 
 *.~undo-tree~
+report.html
