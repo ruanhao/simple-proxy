@@ -90,12 +90,10 @@ def run_proxy(
         server_address = (disguise_tls_ip, disguise_tls_port)
         kf_mock, cf_mock = create_temp_key_cert()
         httpd = http.server.HTTPServer(server_address, MyHttpHandler)  # noqa
-        httpd.socket = ssl.wrap_socket(httpd.socket,
-                                       server_side=True,
-                                       certfile=cf_mock,
-                                       keyfile=kf_mock,
-                                       ssl_version=ssl.PROTOCOL_TLS)
-        pstderr(f"Builin disguise TLS server started listening(https://localhost:{disguise_tls_port}) ...")
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        context.load_cert_chain(certfile=cf_mock, keyfile=kf_mock)
+        httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+        pstderr(f"Builtin disguise TLS server started listening(https://localhost:{disguise_tls_port}) ...")
         submit_daemon_thread(httpd.serve_forever)
 
     client_eventloop_group = EventLoopGroup(proxy_workers, 'Client')
