@@ -1,6 +1,8 @@
 # simple-proxy :rocket:
 
 [![CI](https://github.com/ruanhao/simple-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/ruanhao/simple-proxy/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/github/ruanhao/simple-proxy/graph/badge.svg?token=812EM2WL0L)](https://codecov.io/github/ruanhao/simple-proxy)
+
 
 
 A very simple TCP proxy tool empowered by nio tcp framework [py-netty](https://pypi.org/project/py-netty/)
@@ -28,23 +30,20 @@ Usage: simple-proxy [OPTIONS]
 Options:
   Common configuration:           Configuration for local/remote
                                   endpoints
-    -l, --local-server TEXT       Local server address  [default:
-                                  localhost]
-    -lp, --local-port INTEGER     Local port  [default: 8080]
-    -g, --global                  Local port listening on all
-                                  interfaces
-    -r, --remote-server TEXT      Remote server address  [default:
-                                  localhost]
+    -l, --listening-host TEXT     Listening server address
+                                  [default: localhost]
+    -lp, --listening-port INTEGER
+                                  Listening port  [default: 8080]
+    -g, --global                  Listening on all interfaces
+    -r, --remote-host TEXT        Remote host  [default: localhost]
     -rp, --remote-port INTEGER    Remote port  [default: 80]
     -s, --tls                     Denote remote is listening on
                                   secure port
-    -ss                           Make local listen on secure port
+    -ss                           Listening on secure port
   TCP proxy configuration:        Configuration for TCP proxy mode
-    --read-delay-millis INTEGER   Read delay in milliseconds
-                                  [default: 0]
-    --write-delay-millis INTEGER  Write delay in milliseconds
-                                  [default: 0]
-  Thread configuration:           Configuration for thread pool
+    --read-delay-millis INTEGER   Read delay(ms)  [default: 0]
+    --write-delay-millis INTEGER  Write delay(ms)  [default: 0]
+  Thread configuration:           Configuration for thread
     --workers INTEGER             Number of worker threads
                                   [default: 1]
     --proxy-workers INTEGER       Number of proxy threads  [default:
@@ -63,8 +62,8 @@ Options:
     -m, --monitor                 Print speed info to console for
                                   established connection
     -mi, --monitor-interval INTEGER
-                                  Speed monitor interval  [default:
-                                  3]
+                                  Speed monitor interval(seconds)
+                                  [default: 3]
   TLS Disguise configuration:     Configuration for protection
                                   against unwanted inspection
     -dti, --disguise-tls-ip TEXT  Disguised upstream TLS IP
@@ -75,18 +74,22 @@ Options:
                                   without specifying external one
     -wl, --white-list TEXT        IP White list for legal incoming
                                   TLS connections (comma separated)
-  Proxy configuration:            Configuration for proxy
-    -e, --as-echo-server          Run as Echo server
+  Proxy configuration:            Configuration for application
+                                  proxies
+    -e, --echo-proxy              Run as Echo server
     --shell-proxy                 Run as shell proxy server
     --http-proxy                  Run as HTTP proxy server
     --socks5-proxy                Run as SOCKS5 proxy server
-    --proxy-username TEXT         Proxy username
-    --proxy-password TEXT         Proxy password
+    --proxy-username TEXT         Proxy username for HTTP/SOCKS5
+                                  proxy
+    --proxy-password TEXT         Proxy password for HTTP/SOCKS5
+                                  proxy
     -t, --proxy-transform <TEXT INTEGER TEXT INTEGER>...
                                   List of target
                                   transformations(origin_host,
                                   origin_port, transformed_host,
-                                  transformed_port)
+                                  transformed_port) for HTTP/SOCKS5
+                                  proxy
   Misc configuration: 
     -v, --verbose
     --log-file PATH               Log file
