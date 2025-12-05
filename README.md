@@ -1,5 +1,8 @@
 # simple-proxy :rocket:
 
+[![CI](https://github.com/ruanhao/simple-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/ruanhao/simple-proxy/actions/workflows/ci.yml)
+
+
 A very simple TCP proxy tool empowered by nio tcp framework [py-netty](https://pypi.org/project/py-netty/)
 
 There is a simple traffic control mechenism between 2 segments of TCP connection:
