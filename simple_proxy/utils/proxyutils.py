@@ -48,6 +48,6 @@ def trim_proxy_info(request_headers_bytes: bytes) -> bytes:
     trimmed = request_headers_bytes
     trimmed = re.sub(b'Proxy-.*\r\n', b'', trimmed, flags=re.IGNORECASE)
     # remove host in url line
-    trimmed = re.sub(b'^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|TRACE|CONNECT)\s+http://[\w\.-]+(:\d+)?/',
+    trimmed = re.sub(br'^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|TRACE|CONNECT)\s+http://[\w\.-]+(:\d+)?/',
                      lambda m: m.group(1) + b' /', trimmed, flags=re.IGNORECASE | re.MULTILINE)
     return trimmed

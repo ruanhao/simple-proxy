@@ -90,7 +90,7 @@ def run_proxy(
         server_address = (disguise_tls_ip, disguise_tls_port)
         kf_mock, cf_mock = create_temp_key_cert()
         httpd = http.server.HTTPServer(server_address, MyHttpHandler)  # noqa
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(certfile=cf_mock, keyfile=kf_mock)
         httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
         pstderr(f"Builtin disguise TLS server started listening(https://localhost:{disguise_tls_port}) ...")
