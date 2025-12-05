@@ -13,7 +13,7 @@ STDOUT=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --help|-h)
-            echo "Usage: $0 [options] [file] [function]"
+            echo "Usage: $0 [options] [file::class::function]"
             echo ""
             echo "Options:"
             echo "  --integration, -i     Run integration tests"
@@ -44,18 +44,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-FILE="${POSITIONAL_ARGS[0]}"
-FUNC="${POSITIONAL_ARGS[1]}"
-
+# FILE="${POSITIONAL_ARGS[0]}"
+# FUNC="${POSITIONAL_ARGS[1]}"
+TEST_OBJ="${POSITIONAL_ARGS[0]}"
 
 TARGET="$TESTS_DIR/"
-if [[ -n "$FILE" ]]; then
-    TARGET="$TESTS_DIR/$FILE"
-    if [[ -n "$FUNC" ]]; then
-        TARGET="${TARGET}::${FUNC}"
-    fi
+if [[ -n "$TEST_OBJ" ]]; then
+    TARGET=$TEST_OBJ
 fi
-
 
 PYTEST_CMD=("pytest")
 if $STDOUT; then
