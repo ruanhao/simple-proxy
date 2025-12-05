@@ -1,8 +1,7 @@
-from fastmcp.contrib.bulk_tool_caller.example import echo_tool
-
 from simple_proxy.run import run_proxy
 import pytest
 from simple_proxy.handler.shell_channel_handler import ShellChannelHandler
+
 
 def test_run_proxy_case_tls_mode_with_both_disguise_ip_and_server():
     with pytest.raises(SystemExit):
@@ -19,6 +18,7 @@ def test_run_proxy_case_tls_mode_with_both_disguise_ip_and_server():
             run_disguise_tls_server=True,
         )
 
+
 def test_run_proxy_case_tcp_proxy(mocker):
     ServerBoostrapMocker = mocker.patch('simple_proxy.run.ServerBootstrap')
     run_proxy(
@@ -32,8 +32,8 @@ def test_run_proxy_case_tcp_proxy(mocker):
         monitor_interval=3,
         disguise_tls_ip="1.2.3.4",
         disguise_tls_port=443,
-        run_disguise_tls_server = False,
-        alpn = True,
+        run_disguise_tls_server=False,
+        alpn=True,
         read_delay_millis=100,
         write_delay_millis=200,
         workers=2,
@@ -64,7 +64,6 @@ def test_run_proxy_case_tcp_proxy(mocker):
     assert ServerBoostrapMocker.return_value.bind.call_args[1]['port'] == 8081
 
 
-
 def test_run_proxy_case_http_proxy(mocker):
     ServerBoostrapMocker = mocker.patch('simple_proxy.run.ServerBootstrap')
     run_proxy(
@@ -78,11 +77,11 @@ def test_run_proxy_case_http_proxy(mocker):
         monitor_interval=3,
         disguise_tls_ip=None,
         disguise_tls_port=443,
-        run_disguise_tls_server = False,
-        alpn = True,
-        read_delay_millis = 100,
-        write_delay_millis = 200,
-        workers = 4,
+        run_disguise_tls_server=False,
+        alpn=True,
+        read_delay_millis=100,
+        write_delay_millis=200,
+        workers=4,
         http_proxy=True,
         proxy_transform=(('example.com', 80, 'transformed.com', 8080),),
         proxy_workers=2,
@@ -104,6 +103,7 @@ def test_run_proxy_case_http_proxy(mocker):
     assert http_proxy_channel_handler._proxy_username == "cisco"
     assert http_proxy_channel_handler._proxy_password == "juniper"
 
+
 def test_run_proxy_case_socks5_proxy(mocker):
     ServerBoostrapMocker = mocker.patch('simple_proxy.run.ServerBootstrap')
     run_proxy(
@@ -117,11 +117,11 @@ def test_run_proxy_case_socks5_proxy(mocker):
         monitor_interval=3,
         disguise_tls_ip=None,
         disguise_tls_port=443,
-        run_disguise_tls_server = False,
-        alpn = True,
-        read_delay_millis = 100,
-        write_delay_millis = 200,
-        workers = 4,
+        run_disguise_tls_server=False,
+        alpn=True,
+        read_delay_millis=100,
+        write_delay_millis=200,
+        workers=4,
         socks5_proxy=True,
         proxy_transform=(('example.com', 80, 'transformed.com', 8080),),
         proxy_workers=2,
@@ -145,6 +145,7 @@ def test_run_proxy_case_socks5_proxy(mocker):
     assert ServerBoostrapMocker.return_value.bind.call_args[1]['address'] == '127.0.0.2'
     assert ServerBoostrapMocker.return_value.bind.call_args[1]['port'] == 8081
 
+
 def test_run_proxy_case_shell_proxy(mocker):
     ServerBoostrapMocker = mocker.patch('simple_proxy.run.ServerBootstrap')
     run_proxy(
@@ -158,11 +159,11 @@ def test_run_proxy_case_shell_proxy(mocker):
         monitor_interval=3,
         disguise_tls_ip=None,
         disguise_tls_port=443,
-        run_disguise_tls_server = False,
-        alpn = True,
-        read_delay_millis = 100,
-        write_delay_millis = 200,
-        workers = 4,
+        run_disguise_tls_server=False,
+        alpn=True,
+        read_delay_millis=100,
+        write_delay_millis=200,
+        workers=4,
         shell_proxy=True,
     )
     kwargs = ServerBoostrapMocker.call_args[1]
@@ -189,11 +190,11 @@ def test_run_proxy_case_echo_server(mocker):
         monitor_interval=3,
         disguise_tls_ip=None,
         disguise_tls_port=443,
-        run_disguise_tls_server = False,
-        alpn = True,
-        read_delay_millis = 100,
-        write_delay_millis = 200,
-        workers = 4,
+        run_disguise_tls_server=False,
+        alpn=True,
+        read_delay_millis=100,
+        write_delay_millis=200,
+        workers=4,
         as_echo_server=True,
         proxy_workers=8,
     )
@@ -206,6 +207,7 @@ def test_run_proxy_case_echo_server(mocker):
     echo_channel_handler = kwargs['child_handler_initializer']()
     assert echo_channel_handler._client_eventloop_group.num == 8
     assert echo_channel_handler._tls is True
+
 
 def test_run_disguise_tls_server(mocker):
     mocker.patch('simple_proxy.run.ServerBootstrap')
@@ -221,13 +223,14 @@ def test_run_disguise_tls_server(mocker):
         monitor_interval=3,
         disguise_tls_ip=None,
         disguise_tls_port=443,
-        run_disguise_tls_server = True,
-        alpn = True,
-        read_delay_millis = 100,
-        write_delay_millis = 200,
-        workers = 4,
+        run_disguise_tls_server=True,
+        alpn=True,
+        read_delay_millis=100,
+        write_delay_millis=200,
+        workers=4,
     )
     submit_daemon_thread_mocker.assert_called_once()
+
 
 def test_run_monitor(mocker):
     mocker.patch('simple_proxy.run.ServerBootstrap')
@@ -243,10 +246,10 @@ def test_run_monitor(mocker):
         monitor_interval=30,
         disguise_tls_ip=None,
         disguise_tls_port=443,
-        run_disguise_tls_server = False,
-        alpn = True,
-        read_delay_millis = 100,
-        write_delay_millis = 200,
-        workers = 4,
+        run_disguise_tls_server=False,
+        alpn=True,
+        read_delay_millis=100,
+        write_delay_millis=200,
+        workers=4,
     )
     spawn_clients_monitor_mocker.assert_called_once_with(30)
