@@ -212,7 +212,7 @@ def test_channel_read_case_authenticate_with_wrong_password(mocker):
     handler.channel_read(ctx, b'\x05\x01\x02')
     ctx.write.assert_called_with(b'\x05\x02')  # USERNAME/PASSWORD authentication
 
-    with pytest.raises(ValueError, match="Authentication failed: cisco/\*\*\*\*\*\*\*\*"):
+    with pytest.raises(ValueError, match=r"Authentication failed: cisco/\*\*\*\*\*\*\*\*"):
         handler.channel_read(ctx, b'\x01\x05') # Version 1
         handler.channel_read(ctx, b'cis')
         handler.channel_read(ctx, b'co')
