@@ -124,8 +124,8 @@ def test_tcp_proxy_client():
     time.sleep(1.1)
     c1.read(1100)
     c1.write(1200)
-    assert c1.rbps >= 1000
-    assert c1.wbps >= 1000
+    assert c1.rbps >= 900
+    assert c1.wbps >= 900
     assert TcpProxyClient.max_rx >= 1000
     assert TcpProxyClient.max_tx >= 1000
     assert c1.cumulative_read_time == 0

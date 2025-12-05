@@ -34,4 +34,5 @@ jobs:
           flags: ${{ matrix.os }}-py${{ matrix.python-version }}
           name: ${{ matrix.os }}-py${{ matrix.python-version }}
           fail_ci_if_error: false
+          verbose: true
           token: ${{ secrets.CODECOV_TOKEN }}
