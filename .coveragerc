@@ -1,6 +1,5 @@
 [run]
 branch = True
-source = simple_proxy
 relative_files = True
 omit =
     */tests/*
@@ -9,10 +8,10 @@ omit =
     */site-packages/*
     */venv/*
     */.venv/*
-    __main__.py
+    */__main__.py
     */__init__.py
-    setup.py
-    version.py
+    */setup.py
+    */version.py
 
 [report]
 # Report settings
