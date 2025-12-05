@@ -9,7 +9,7 @@ set -o errexit
 
 tag=`date "+%Y%m%d%H%M%S"`
 # pytest --html=report-$tag.html --self-contained-html
-./run_test.sh
+pytest
 
 tempdir="$(mktemp -d)"
 file "$tempdir"
