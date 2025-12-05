@@ -1,6 +1,7 @@
 [run]
 branch = True
-source = .
+source = simple_proxy
+relative_files = True
 omit =
     */tests/*
     */test_*.py
