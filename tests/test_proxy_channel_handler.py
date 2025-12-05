@@ -6,6 +6,7 @@ from simple_proxy.clients import get_clients
 
 raddr = ('127.0.0.1', 8080)
 
+
 def test_exception_caught(mocker):
     handler = ProxyChannelHandler("1.2.3.4", 9090, EventLoopGroup())
     ctx_mocker = mocker.MagicMock()
@@ -26,12 +27,14 @@ def test_channel_active(mocker):
     handler.channel_active(ctx_mocker)
     assert raddr in get_clients()
 
+
 def test_create_client_case_already_exists(mocker):
     handler = ProxyChannelHandler(
         "1.2.3.4", 9090, EventLoopGroup(),
     )
     handler._client = mocker.MagicMock()
     handler._create_client(None, None)  # no exception should be raised
+
 
 def test_create_client_case_disguise_and_wait_for_traffic(mocker):
     handler = ProxyChannelHandler(
@@ -40,6 +43,7 @@ def test_create_client_case_disguise_and_wait_for_traffic(mocker):
     )
     handler._client = mocker.MagicMock()
     handler._create_client(None, None)  # no exception should be raised
+
 
 def test_create_client_case_non_whitelist_with_disguise(mocker):
     handler = ProxyChannelHandler(
@@ -58,6 +62,7 @@ def test_create_client_case_non_whitelist_with_disguise(mocker):
     handler._create_client(ctx_mocker, b'\x16\x03\x01')
     assert BoostrapMocker().connect.call_args[0] == ("4.3.2.1", 443, True)
     assert handler._client is client_mocker
+
 
 def test_create_client_case_non_whitelist_with_disguise_but_not_tls(mocker):
     handler = ProxyChannelHandler(
@@ -160,9 +165,10 @@ def test_create_client_case_no_wl_and_disguise_configured(mocker):
     )
     BoostrapMocker.return_value.connect.return_value.sync.return_value.channel.return_value = client_mocker
 
-    handler._create_client(ctx_mocker, None) # channel active
+    handler._create_client(ctx_mocker, None)  # channel active
     assert handler._client is client_mocker
     assert BoostrapMocker().connect.call_args[0] == ("1.2.3.4", 9090, True)
+
 
 def test_channel_inactive(mocker):
     handler = ProxyChannelHandler("1.2.3.4", 8080, EventLoopGroup())
@@ -209,6 +215,7 @@ def test_channel_read_case_no_delay(mocker):
     assert time.time() - now < 0.5  # no delay
     client_mocker.write.assert_called_once_with(b'test data')
 
+
 def test_channel_read_case_write_delay(mocker):
     handler = ProxyChannelHandler(
         "1.2.3.4", 8080, EventLoopGroup(),
@@ -244,15 +251,14 @@ def _get_client_channel_handler(mocker, ctx0_mocker, read_delay_millis=0):
     return BoostrapMocker.call_args[1]['handler_initializer']
 
 
-
-
 def test_client_channel_inactive(mocker):
     ctx0_mocker = mocker.MagicMock()
     ctx0_mocker.channel.return_value.socket.return_value.getpeername.return_value = ("10.1.0.1", 12345)
     handler_cls = _get_client_channel_handler(mocker, ctx0_mocker)
     ctx_mocker = mocker.MagicMock()
     handler_cls().channel_inactive(ctx_mocker)
-    assert ctx0_mocker.close.called_once()
+    ctx0_mocker.close.assert_called_once()
+
 
 def test_client_channel_writability_changed(mocker):
     ctx0_mocker = mocker.MagicMock()
@@ -285,6 +291,7 @@ def test_client_channel_read_case_no_delay(mocker):
     handler.channel_read(ctx_mocker, b'test data')
     assert time.time() - now < 0.5  # no delay
     ctx0_mocker.write.assert_called_once_with(b'test data')
+
 
 def test_client_channel_read_case_delay(mocker):
     ctx0_mocker = mocker.MagicMock()
