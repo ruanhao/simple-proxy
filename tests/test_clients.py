@@ -76,14 +76,14 @@ def test_handle_data_case_client_rw(mocker):
     client_mocker = mocker.MagicMock()
     get_clients()[('127.0.0.1', 12345)] = client_mocker
     assert handle_data(buffer, True, src, dst, False, False) == buffer
-    assert client_mocker.read.called_once_with(len(buffer))
+    client_mocker.read.assert_called_once_with(len(buffer))
     assert not client_mocker.write.called
 
     # write case
     client_mocker = mocker.MagicMock()
     get_clients()[('8.8.8.8', 54321)] = client_mocker
     assert handle_data(buffer, False, src, dst, False, False) == buffer
-    assert client_mocker.write.called_once_with(len(buffer))
+    client_mocker.write.assert_called_once_with(len(buffer))
     assert not client_mocker.read.called
 
 def test_handle_data_case_log_data(mocker):
