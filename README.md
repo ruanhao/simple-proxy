@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/ruanhao/simple-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/ruanhao/simple-proxy/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/github/ruanhao/simple-proxy/graph/badge.svg?token=812EM2WL0L)](https://codecov.io/github/ruanhao/simple-proxy)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/simple-proxy)
 
 
 
