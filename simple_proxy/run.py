@@ -20,6 +20,7 @@ from .utils import (
     alpn_ssl_context_cb,
     random_sentence,
 )
+from .utils.stringutils import is_ip_address
 
 
 class MyHttpHandler(http.server.BaseHTTPRequestHandler):
@@ -52,6 +53,7 @@ def run_proxy(
         proxy_username=None, proxy_password=None,
         shell_proxy=False,
         read_delay_millis=0, write_delay_millis=0,
+        server_name_indication: str | None = None,
         workers=1, proxy_workers=1,
         as_echo_server=False,
 ):
@@ -168,6 +170,7 @@ def run_proxy(
                 alpn=alpn,
                 read_delay_millis=read_delay_millis,
                 write_delay_millis=write_delay_millis,
+                sni=server_name_indication,
             ),
             certfile=cf,
             keyfile=kf,
@@ -176,6 +179,8 @@ def run_proxy(
         disguise = f"https://{disguise_tls_ip}:{disguise_tls_port}" if disguise_tls_ip else 'n/a'
         pstderr(f"Proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} => {remote_server}:{remote_port}{'(TLS)' if tls else ''} ...")
         pstderr(f"console:{content}, file:{to_file}, disguise:{disguise}, whitelist:{white_list0 or '*'}")
+        if is_ip_address(remote_server) and tls and not server_name_indication:
+            pstderr("[WARN] Direct IP address is used as remote TLS server, it's recommended to specify SNI using '--server-name-indication' option!")
 
     if monitor:
         spawn_clients_monitor(monitor_interval)

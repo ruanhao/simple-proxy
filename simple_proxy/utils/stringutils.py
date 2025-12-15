@@ -66,3 +66,7 @@ def check_ip_patterns(patterns: list[str], s: str) -> bool:
             _get_logger().debug(f"pattern {pattern} matched {s}")
             return True
     return False
+
+def is_ip_address(s: str) -> bool:
+    ip_pattern = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
+    return bool(ip_pattern.match(s))

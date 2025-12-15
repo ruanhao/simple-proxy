@@ -77,22 +77,6 @@ class ShellChannelHandler(LoggingChannelHandler):
         self._shell_stdin_fd = master_fd
         submit_daemon_thread(self.handle_read_output, ctx, master_fd)
 
-    def _setup_linux_shell0(self, ctx):
-        my_env = os.environ.copy()
-        i_r, i_w = os.pipe()
-        o_r, o_w = os.pipe()
-        self._process = subprocess.Popen(
-            [shutil.which('bash'), '-li'],
-            stdin=i_r,
-            stdout=o_w,
-            stderr=o_w,
-            bufsize=-1,
-            start_new_session=True,
-            env=my_env
-        )
-        self._shell_stdin_fd = i_w
-        submit_daemon_thread(self.handle_read_output, ctx, o_r)
-
     def channel_active(self, ctx):
         super().channel_active(ctx)
         local_socket = ctx.channel().socket()

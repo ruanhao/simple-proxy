@@ -4,6 +4,7 @@ from simple_proxy.utils import (
     pretty_duration,
     check_ip_patterns,
 )
+from simple_proxy.utils.stringutils import is_ip_address
 
 
 def test_random_string():
@@ -51,3 +52,9 @@ def test_check_ip_patterns():
     assert check_ip_patterns(patterns, '2.3.4.5') is False
     assert check_ip_patterns(patterns, '127.0.0.1') is False
     assert check_ip_patterns(patterns, 'localhost') is False
+
+
+def test_is_ip_address():
+    assert is_ip_address("1.2.3.4")
+    assert not is_ip_address("1.2.3")
+    assert not is_ip_address("www.google.com")
