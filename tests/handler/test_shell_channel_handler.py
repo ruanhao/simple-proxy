@@ -1,5 +1,6 @@
 import subprocess
 import pytest
+import sys
 
 from simple_proxy.handler.shell_channel_handler import ShellChannelHandler
 import simple_proxy.handler.shell_channel_handler as sch
@@ -92,6 +93,7 @@ class TestSetupShell:
         submit_mock.assert_any_call(handler.handle_read_output, ctx_mocker, 2)
         submit_mock.assert_any_call(handler.handle_read_output, ctx_mocker, 3)
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="Only for non-Windows platforms")
     def test_setup_linux_shell(self, mocker, ctx_mocker):
         handler = ShellChannelHandler()
         mocker.patch('simple_proxy.handler.shell_channel_handler.shutil.which', return_value='/bin/bash')
