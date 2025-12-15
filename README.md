@@ -29,69 +29,53 @@ pip install simple-proxy -U
 Usage: simple-proxy [OPTIONS]
 
 Options:
-  Common configuration:           Configuration for local/remote
-                                  endpoints
-    -l, --listening-host TEXT     Listening server address
-                                  [default: localhost]
+  Common configuration:           Configuration for local/remote endpoints
+    -l, --listening-host TEXT     Listening server address  [default: localhost]
     -lp, --listening-port INTEGER
                                   Listening port  [default: 8080]
     -g, --global                  Listening on all interfaces
     -r, --remote-host TEXT        Remote host  [default: localhost]
     -rp, --remote-port INTEGER    Remote port  [default: 80]
-    -s, --tls                     Denote remote is listening on
-                                  secure port
+    -s, --tls                     Denote remote is listening on secure port
     -ss                           Listening on secure port
   TCP proxy configuration:        Configuration for TCP proxy mode
     --read-delay-millis INTEGER   Read delay(ms)  [default: 0]
     --write-delay-millis INTEGER  Write delay(ms)  [default: 0]
+    -sni, --server-name-indication TEXT
+                                  Server Name Indication(SNI) for TLS connection to remote server
   Thread configuration:           Configuration for thread
-    --workers INTEGER             Number of worker threads
-                                  [default: 1]
-    --proxy-workers INTEGER       Number of proxy threads  [default:
-                                  1]
+    --workers INTEGER             Number of worker threads  [default: 1]
+    --proxy-workers INTEGER       Number of proxy threads  [default: 1]
   Traffic dump configuration:     Configuration for traffic dump
     -c, --tcp-flow                Dump tcp flow on to console
     -f, --save-tcp-flow           Save tcp flow to file
-  TLS certificate configuration: 
+  TLS certificate configuration:
                                   Configuration for TLS certificate
     -kf, --key-file PATH          Key file for local server
     -cf, --cert-file PATH         Certificate file for local server
-    --alpn                        Set ALPN protocol as [h2,
-                                  http/1.1]
-  Traffic monitor configuration: 
+    --alpn                        Set ALPN protocol as [h2, http/1.1]
+  Traffic monitor configuration:
                                   Configuration for traffic monitor
-    -m, --monitor                 Print speed info to console for
-                                  established connection
+    -m, --monitor                 Print speed info to console for established connection
     -mi, --monitor-interval INTEGER
-                                  Speed monitor interval(seconds)
-                                  [default: 3]
-  TLS Disguise configuration:     Configuration for protection
-                                  against unwanted inspection
+                                  Speed monitor interval(seconds)  [default: 3]
+  TLS Disguise configuration:     Configuration for protection against unwanted inspection
     -dti, --disguise-tls-ip TEXT  Disguised upstream TLS IP
     -dtp, --disguise-tls-port INTEGER
-                                  Disguised upstream TLS port
-                                  [default: 443]
-    --run-disguise-tls-server     Run builtin disguise TLS server
-                                  without specifying external one
-    -wl, --white-list TEXT        IP White list for legal incoming
-                                  TLS connections (comma separated)
-  Proxy configuration:            Configuration for application
-                                  proxies
+                                  Disguised upstream TLS port  [default: 443]
+    --run-disguise-tls-server     Run builtin disguise TLS server without specifying external one
+    -wl, --white-list TEXT        IP White list for legal incoming TLS connections (comma separated)
+  Proxy configuration:            Configuration for application proxies
     -e, --echo-proxy              Run as Echo server
     --shell-proxy                 Run as shell proxy server
     --http-proxy                  Run as HTTP proxy server
     --socks5-proxy                Run as SOCKS5 proxy server
-    --proxy-username TEXT         Proxy username for HTTP/SOCKS5
-                                  proxy
-    --proxy-password TEXT         Proxy password for HTTP/SOCKS5
-                                  proxy
+    --proxy-username TEXT         Proxy username for HTTP/SOCKS5 proxy
+    --proxy-password TEXT         Proxy password for HTTP/SOCKS5 proxy
     -t, --proxy-transform <TEXT INTEGER TEXT INTEGER>...
-                                  List of target
-                                  transformations(origin_host,
-                                  origin_port, transformed_host,
-                                  transformed_port) for HTTP/SOCKS5
-                                  proxy
-  Misc configuration: 
+                                  List of target transformations(origin_host, origin_port, transformed_host,
+                                  transformed_port) for HTTP/SOCKS5 proxy
+  Misc configuration:
     -v, --verbose
     --log-file PATH               Log file
   --version                       Show the version and exit.

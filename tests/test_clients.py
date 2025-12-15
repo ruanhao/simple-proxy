@@ -1,5 +1,15 @@
-from simple_proxy.clients import *
-from simple_proxy.clients import _print_http_proxy_info, _print_socks5_proxy_info
+import pytest
+from simple_proxy.clients import (
+    get_clients,
+    get_client_or_none,
+    get_client_or_create,
+    pop_client,
+    TcpProxyClient,
+    spawn_clients_monitor,
+    stop_clients_monitor,
+    handle_data,
+)
+from simple_proxy.clients import _print_http_proxy_info, _print_socks5_proxy_info  # noqa
 import time
 
 
@@ -14,6 +24,7 @@ def test_print_proxy_info():
     get_socks5_mapings()["c"] = "d"
     _print_socks5_proxy_info()
     _print_http_proxy_info()
+
 
 def test_get_client_or_none():
     client = TcpProxyClient()
@@ -31,6 +42,7 @@ def test_get_client_or_create():
     pop_client(raddr)
     assert get_client_or_create(raddr) is not origin_client
 
+
 def test_spawn_clients_monitor():
     client = TcpProxyClient()
     get_clients()[('127.0.0.1', 8080)] = client
@@ -43,65 +55,70 @@ def test_spawn_clients_monitor():
     time.sleep(1)
     assert not t.is_alive()
 
+
 def test_stop_clients_monitor():
     from simple_proxy import clients
     clients._monitor = True
     stop_clients_monitor()
     assert not clients._monitor
 
-def test_handle_data_case_no_data(mocker):
-    src = mocker.MagicMock()
-    dst = mocker.MagicMock()
-    src.channelinfo.return_value.peername = ('127.0.0.1', 12345)
-    dst.channelinfo.return_value.peername = ('8.8.8.8', 54321)
-    assert not handle_data(b'', True, src, dst, False, False)
 
-def test_handle_data_case_no_client(mocker):
-    src = mocker.MagicMock()
-    dst = mocker.MagicMock()
-    src.channelinfo.return_value.peername = ('127.0.0.1', 12345)
-    dst.channelinfo.return_value.peername = ('8.8.8.8', 54321)
-    get_clients().clear()
-    buffer = b'123'
-    assert handle_data(buffer, True, src, dst, False, False) == buffer
+class TestHandleData:
 
-def test_handle_data_case_client_rw(mocker):
-    src = mocker.MagicMock()
-    dst = mocker.MagicMock()
-    src.channelinfo.return_value.peername = ('127.0.0.1', 12345)
-    dst.channelinfo.return_value.peername = ('8.8.8.8', 54321)
-    buffer = b'123'
+    @pytest.fixture(scope='function', autouse=False)
+    def src(self, mocker):
+        return mocker.MagicMock()
 
-    # read case
-    client_mocker = mocker.MagicMock()
-    get_clients()[('127.0.0.1', 12345)] = client_mocker
-    assert handle_data(buffer, True, src, dst, False, False) == buffer
-    client_mocker.read.assert_called_once_with(len(buffer))
-    assert not client_mocker.write.called
+    @pytest.fixture(scope='function', autouse=False)
+    def dst(self, mocker):
+        return mocker.MagicMock()
 
-    # write case
-    client_mocker = mocker.MagicMock()
-    get_clients()[('8.8.8.8', 54321)] = client_mocker
-    assert handle_data(buffer, False, src, dst, False, False) == buffer
-    client_mocker.write.assert_called_once_with(len(buffer))
-    assert not client_mocker.read.called
+    def test_no_data(self, src, dst):
+        src.channelinfo.return_value.peername = ('127.0.0.1', 12345)
+        dst.channelinfo.return_value.peername = ('8.8.8.8', 54321)
+        assert not handle_data(b'', True, src, dst, False, False)
 
-def test_handle_data_case_log_data(mocker):
-    src = mocker.MagicMock()
-    dst = mocker.MagicMock()
-    src.channelinfo.return_value.peername = ('127.0.0.1', 12345)
-    dst.channelinfo.return_value.peername = ('8.8.8.8', 54321)
-    get_clients().clear()
-    buffer = b'123'
-    assert handle_data(buffer, True, src, dst, True, False) == buffer
-    assert handle_data(buffer, True, src, dst, False, False) == buffer
-    assert handle_data(buffer, True, src, dst, True, True) == buffer
-    assert handle_data(buffer, True, src, dst, False, True) == buffer
+    def test_no_client(self, src, dst):
+        src.channelinfo.return_value.peername = ('127.0.0.1', 12345)
+        dst.channelinfo.return_value.peername = ('8.8.8.8', 54321)
+        get_clients().clear()
+        buffer = b'123'
+        assert handle_data(buffer, True, src, dst, False, False) == buffer
 
-    assert handle_data(buffer, False, src, dst, True, False) == buffer
-    assert handle_data(buffer, False, src, dst, False, False) == buffer
-    assert handle_data(buffer, False, src, dst, True, True) == buffer
-    assert handle_data(buffer, False, src, dst, False, True) == buffer
+    def test_client_rw(self, mocker, src, dst):
+        src.channelinfo.return_value.peername = ('127.0.0.1', 12345)
+        dst.channelinfo.return_value.peername = ('8.8.8.8', 54321)
+        buffer = b'123'
+
+        # read case
+        client_mocker = mocker.MagicMock()
+        get_clients()[('127.0.0.1', 12345)] = client_mocker
+        assert handle_data(buffer, True, src, dst, False, False) == buffer
+        client_mocker.read.assert_called_once_with(len(buffer))
+        assert not client_mocker.write.called
+
+        # write case
+        client_mocker = mocker.MagicMock()
+        get_clients()[('8.8.8.8', 54321)] = client_mocker
+        assert handle_data(buffer, False, src, dst, False, False) == buffer
+        client_mocker.write.assert_called_once_with(len(buffer))
+        assert not client_mocker.read.called
+
+    def test_log_data(self, src, dst):
+        src.channelinfo.return_value.peername = ('127.0.0.1', 12345)
+        dst.channelinfo.return_value.peername = ('8.8.8.8', 54321)
+        get_clients().clear()
+        buffer = b'123'
+        assert handle_data(buffer, True, src, dst, True, False) == buffer
+        assert handle_data(buffer, True, src, dst, False, False) == buffer
+        assert handle_data(buffer, True, src, dst, True, True) == buffer
+        assert handle_data(buffer, True, src, dst, False, True) == buffer
+
+        assert handle_data(buffer, False, src, dst, True, False) == buffer
+        assert handle_data(buffer, False, src, dst, False, False) == buffer
+        assert handle_data(buffer, False, src, dst, True, True) == buffer
+        assert handle_data(buffer, False, src, dst, False, True) == buffer
+
 
 def test_tcp_proxy_client():
     c1 = TcpProxyClient()

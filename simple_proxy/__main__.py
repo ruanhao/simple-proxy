@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 @optgroup.group('TCP proxy configuration', help='Configuration for TCP proxy mode')
 @optgroup.option('--read-delay-millis', type=int, help='Read delay(ms)', default=0, show_default=True)
 @optgroup.option('--write-delay-millis', type=int, help='Write delay(ms)', default=0, show_default=True)
+@optgroup.option('--server-name-indication', '-sni', help='Server Name Indication(SNI) for TLS connection to remote server')
 #
 @optgroup.group('Thread configuration', help='Configuration for thread')
 @optgroup.option('--workers', type=int, default=1, help='Number of worker threads', show_default=True)
@@ -64,9 +65,11 @@ logger = logging.getLogger(__name__)
 @click.version_option(prog_name='Simple Proxy', version=__version__)
 def _cli(verbose, log_file: click.Path, **kwargs):
     setup_logging(log_file, logging.INFO if verbose == 0 else logging.DEBUG)
-    if verbose:
-        logger.setLevel(logging.DEBUG)
-        logging.getLogger('simple_proxy.utils').setLevel(logging.DEBUG)
+    if verbose < 2:
+        logger.setLevel(logging.WARNING)
+        for name in ("py_netty", "simple_proxy.utils"):
+            logging.getLogger(name).setLevel(logging.WARNING)
+
     run_proxy(**kwargs)
 
 

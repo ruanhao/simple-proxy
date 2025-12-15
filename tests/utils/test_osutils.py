@@ -5,13 +5,6 @@ import logging
 import threading
 
 
-class TestOS:
-
-    def test_os(self):
-        print("test os")
-        pass
-
-
 def test_from_cwd():
     ts_str = str(int(time.time()))
     test_path = from_cwd('test_dir', ts_str, 'test_file.txt')

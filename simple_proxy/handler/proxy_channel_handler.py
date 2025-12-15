@@ -24,6 +24,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
             alpn: bool = False,
             read_delay_millis: int = 0,
             write_delay_millis: int = 0,
+            sni: str | None = None,
     ):
         self._remote_host = remote_host
         self._remote_port = remote_port
@@ -42,6 +43,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
         self._write_delay_millis = write_delay_millis
         self._unwritable_seconds: float = None  # noqa
         self.raddr: tuple[str, int] = None  # noqa
+        self.sni = sni
 
     def _client_channel(self, ctx0, ip, port):
 
@@ -77,7 +79,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
                 tls=self._tls,
                 verify=False,
                 ssl_context_cb=alpn_ssl_context_cb if self._alpn else None,
-            ).connect(ip, port, True).sync().channel()
+            ).connect(ip, port, True, self.sni).sync().channel()
             set_keepalive(self._client.socket())
         return self._client
 

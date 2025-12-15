@@ -1,0 +1,59 @@
+from simple_proxy.utils import (
+    getsockname, getpeername,
+    free_port,
+    set_keepalive,
+)
+import pytest
+
+
+@pytest.fixture(scope='function', autouse=False)
+def sock_mocker(mocker):
+    return mocker.MagicMock()
+
+
+def test_getsockname(sock_mocker):
+    assert "?" == getsockname(None)
+    assert "?" == getsockname("")
+
+    sock_mocker.getsockname.return_value = ("1.2.3.4", 8080)
+    assert "1.2.3.4:8080" == getsockname(sock_mocker)
+
+    sock_mocker.getsockname.side_effect = OSError()
+    assert "!" == getsockname(sock_mocker)
+
+
+def test_getpeername(sock_mocker):
+    assert "?" == getpeername(None)
+    assert "?" == getpeername("")
+
+    sock_mocker.getpeername.return_value = ("1.2.3.4", 8080)
+    assert "1.2.3.4:8080" == getpeername(sock_mocker)
+
+    sock_mocker.getpeername.side_effect = OSError()
+    assert "!" == getpeername(sock_mocker)
+
+
+def test_free_port():
+    port = free_port()
+    assert 1024 < port < 65536
+
+
+class TestSetKeepalive:
+
+    def test_set_keepalive_case_linux(self, mocker, sock_mocker):
+        mocker.patch('simple_proxy.utils.netutils.platform.system', return_value='Linux')
+        mocker.patch('simple_proxy.utils.netutils.socket')
+        set_keepalive(sock_mocker)
+        assert sock_mocker.setsockopt.call_count == 4
+
+    def test_set_keepalive_case_windows(self, mocker, sock_mocker):
+        mocker.patch('simple_proxy.utils.netutils.platform.system', return_value='Windows')
+        mocker.patch('simple_proxy.utils.netutils.socket')
+        set_keepalive(sock_mocker)
+        assert sock_mocker.ioctl.call_count == 1
+
+    def test_set_keepalive_case_osx(self, mocker, sock_mocker):
+        mocker.patch('simple_proxy.utils.netutils.platform.system', return_value='Darwin')
+        mocker.patch('simple_proxy.utils.netutils.socket')
+        set_keepalive(sock_mocker)
+        assert sock_mocker.setsockopt.call_count == 2
