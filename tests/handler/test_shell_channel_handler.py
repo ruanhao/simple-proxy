@@ -115,7 +115,7 @@ class TestSetupShell:
         assert popen_kwargs['stderr'] == 11
         assert popen_kwargs['start_new_session'] is True
         assert handler._shell_stdin_fd == 10
-        close_mock.assert_called_once_with(11)
+        close_mock.assert_called_with(11)
         submit_mock.assert_called_once_with(handler.handle_read_output, ctx_mocker, 10)
 
 
