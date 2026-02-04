@@ -30,8 +30,8 @@ Usage: simple-proxy [OPTIONS]
 
 Options:
   Common configuration:           Configuration for local/remote endpoints
-    -l, --listening-host TEXT     Listening server address  [default: localhost]
-    -lp, --listening-port INTEGER
+    -l, --listening-host TEXT     Listening server address [default: localhost]
+    -lp, -p, --listening-port INTEGER
                                   Listening port  [default: 8080]
     -g, --global                  Listening on all interfaces
     -r, --remote-host TEXT        Remote host  [default: localhost]
@@ -44,25 +44,26 @@ Options:
     -sni, --server-name-indication TEXT
                                   Server Name Indication(SNI) for TLS connection to remote server
   Thread configuration:           Configuration for thread
-    --workers INTEGER             Number of worker threads  [default: 1]
+    --workers INTEGER             Number of worker threads
+                                  [default: 1]
     --proxy-workers INTEGER       Number of proxy threads  [default: 1]
   Traffic dump configuration:     Configuration for traffic dump
     -c, --tcp-flow                Dump tcp flow on to console
     -f, --save-tcp-flow           Save tcp flow to file
-  TLS certificate configuration:
-                                  Configuration for TLS certificate
+  TLS certificate configuration:  Configuration for TLS certificate
     -kf, --key-file PATH          Key file for local server
     -cf, --cert-file PATH         Certificate file for local server
     --alpn                        Set ALPN protocol as [h2, http/1.1]
-  Traffic monitor configuration:
-                                  Configuration for traffic monitor
-    -m, --monitor                 Print speed info to console for established connection
+  Traffic monitor configuration:  Configuration for traffic monitor
+    -m, --monitor                 Print speed info to console for
+                                  established connection
     -mi, --monitor-interval INTEGER
-                                  Speed monitor interval(seconds)  [default: 3]
-  TLS Disguise configuration:     Configuration for protection against unwanted inspection
+                                  Speed monitor interval(seconds) [default: 3]
+  TLS Disguise configuration:     Configuration for protection
+                                  against unwanted inspection
     -dti, --disguise-tls-ip TEXT  Disguised upstream TLS IP
     -dtp, --disguise-tls-port INTEGER
-                                  Disguised upstream TLS port  [default: 443]
+                                  Disguised upstream TLS port [default: 443]
     --run-disguise-tls-server     Run builtin disguise TLS server without specifying external one
     -wl, --white-list TEXT        IP White list for legal incoming TLS connections (comma separated)
   Proxy configuration:            Configuration for application proxies
@@ -73,9 +74,8 @@ Options:
     --proxy-username TEXT         Proxy username for HTTP/SOCKS5 proxy
     --proxy-password TEXT         Proxy password for HTTP/SOCKS5 proxy
     -t, --proxy-transform <TEXT INTEGER TEXT INTEGER>...
-                                  List of target transformations(origin_host, origin_port, transformed_host,
-                                  transformed_port) for HTTP/SOCKS5 proxy
-  Misc configuration:
+                                  List of target transformations(origin_host, origin_port, transformed_host, transformed_port) for HTTP/SOCKS5 proxy
+  Misc configuration: 
     -v, --verbose
     --log-file PATH               Log file
   --version                       Show the version and exit.
@@ -86,7 +86,7 @@ Options:
 ## Features
 ### Basic proxy (TLS termination) 
 ```commandline
-> simple-proxy --tls -r www.google.com -rp 443 -lp 8080
+> simple-proxy --tls -r www.google.com -rp 443 -p 8080
 Proxy server started listening: localhost:8080 => www.google.com:443(TLS) ...
 console:False, file:False, disguise:n/a, whitelist:*
 > curl -I -H 'Host: www.google.com'  http://localhost:8080
@@ -95,7 +95,7 @@ HTTP/1.1 200 OK
 ```
 
 ```commandline
-> simple-proxy -r www.google.com -rp 80 -lp 8443 -ss
+> simple-proxy -r www.google.com -rp 80 -p 8443 -ss
 Proxy server started listening: localhost:8443(TLS) => www.google.com:80 ...
 console:False, file:False, disguise:n/a, whitelist:*
 > curl -I -H 'Host: www.google.com' -k https://localhost:8443
@@ -106,7 +106,7 @@ HTTP/1.1 200 OK
 ### Dump TCP flow
 TCP flow can be dumped into console or files (under directory __tcpflow__)
 ```commandline
-> simple-proxy -r www.google.com -rp 443 -lp 8443 -ss -s -c -f
+> simple-proxy -r www.google.com -rp 443 -p 8443 -ss -s -c -f
 Proxy server started listening: localhost:8443(TLS) => www.google.com:443(TLS) ...
 console:True, file:True, disguise:n/a, whitelist:*
 > curl -k -I -H 'Host: www.google.com'  https://localhost:8443
@@ -115,7 +115,7 @@ console:True, file:True, disguise:n/a, whitelist:*
 
 ### Connection status monitor
 ```commandline
-> $ simple-proxy -r echo-server.proxy.com -rp 8080 -lp 48080 --monitor
+> $ simple-proxy -r echo-server.proxy.com -rp 8080 -p 48080 -m
 Proxy server started listening: localhost:48080 => echo-server.proxy.com:8080 ...
 console:False, file:False, disguise:n/a, whitelist:*
 Connection opened: ('127.0.0.1', 60937)
@@ -184,10 +184,10 @@ Any connection beyond whitelist will be served by a mock https server. Real serv
 For example, you can protect your Scurrying Squirrel against attack from Grim Foolish Weasel.
 
 ```commandline
-> simple-proxy -rp 8388 -lp 443 -g  --run-disguise-tls-server -wl=<your ip>,<your girlfriend's ip>,<your friend's girlfriend's ip>
+> simple-proxy -rp 8388 -p 443 -g  --run-disguise-tls-server -wl=<your ip>,<your girlfriend's ip>,<your friend's girlfriend's ip>
 # only you and your girlfriends can access :8388
 
-> simple-proxy -rp 8388 -lp 443 -g  --disguise-tls-ip=www.google.com --disguise-tls-port=443
+> simple-proxy -rp 8388 -p 443 -g  --disguise-tls-ip=www.google.com --disguise-tls-port=443
 # only non-https can access :8388, https traffic through :443 will be directed to google
 ```
 
