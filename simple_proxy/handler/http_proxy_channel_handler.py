@@ -34,6 +34,9 @@ def get_local_peer_to_target_mapping() -> dict[str, str]:
 
 
 class HttpProxyChannelHandler(LoggingChannelHandler):
+
+    USE_SOCKSOCKET = False
+
     def __init__(
             self,
             client_eventloop_group,
@@ -68,7 +71,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
             self._client = Bootstrap(
                 eventloop_group=self._client_eventloop_group,
                 handler_initializer=_ChannelHandler
-            ).connect(ip, port, True).sync().channel()
+            ).connect(ip, port, True, use_socksocket=HttpProxyChannelHandler.USE_SOCKSOCKET).sync().channel()
         return self._client
 
     def exception_caught(self, ctx, exception):

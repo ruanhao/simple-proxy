@@ -2,7 +2,7 @@ import codecs
 import http.server
 import signal
 import ssl
-
+import socks
 from py_netty import EventLoopGroup, ServerBootstrap
 
 from .clients import spawn_clients_monitor, stop_clients_monitor
@@ -56,7 +56,15 @@ def run_proxy(
         server_name_indication: str | None = None,
         workers=1, proxy_workers=1,
         as_echo_server=False,
+        internal_socks5_host: str | None = None,
+        internal_socks5_port: int = 0,
 ):
+    if internal_socks5_port and internal_socks5_host:
+        pstderr("[Internal] Setting up internal SOCKS5 proxy for outgoing connection ...")
+        socks.set_default_proxy(socks.SOCKS5, internal_socks5_host, internal_socks5_port)
+        HttpProxyChannelHandler.USE_SOCKSOCKET = True
+
+
     if tls and (disguise_tls_ip or run_disguise_tls_server):
         pfatal("'--tls/-s' is not applicable if disguise mode is used!")
 

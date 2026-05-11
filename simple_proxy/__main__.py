@@ -58,6 +58,8 @@ logger = logging.getLogger(__name__)
 @optgroup.option('--proxy-username', help='Proxy username for HTTP/SOCKS5 proxy')
 @optgroup.option('--proxy-password', help='Proxy password for HTTP/SOCKS5 proxy')
 @optgroup.option('--proxy-transform', '-t', type=(str, int, str, int), multiple=True, help='List of target transformations(origin_host, origin_port, transformed_host, transformed_port) for HTTP/SOCKS5 proxy')
+@optgroup.option('--internal-socks5-host', help='SOCKS5 proxy host for internal use', hidden=True)
+@optgroup.option('--internal-socks5-port', help='SOCKS5 proxy port for internal use', hidden=True, default=0)
 #
 @optgroup.group('Misc configuration')
 @optgroup.option('-v', '--verbose', count=True)
