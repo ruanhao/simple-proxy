@@ -21,7 +21,7 @@ def parse_proxy_info(request_headers: str) -> ProxyInfo:
         host, port = match.groups()
         port = int(port)
     else:                       # http proxy
-        uri = re.search(r'^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|TRACE)\s+http://([\w\.-]+)(:\d+)?/', request_headers, re.IGNORECASE | re.MULTILINE)
+        uri = re.search(r'^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|TRACE)\s+http://([\w\.-]+)(:\d+)?(?:/|\s)', request_headers, re.IGNORECASE | re.MULTILINE)
         if not uri:
             raise ValueError("Invalid HTTP request format")
         host = uri.group(2)

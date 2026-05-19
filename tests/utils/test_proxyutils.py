@@ -67,6 +67,11 @@ Proxy-Connection: Keep-Alive\r\n\r\n""")
         assert parse_info.username == "qiangwa3"
         assert parse_info.password == "lallaa"
 
+    def test_http_proxy_case_no_trailing_slash(self):
+        parse_info = parse_proxy_info("""GET http://dev.finditnm.com HTTP/1.1\r\nHost: dev.cbd-aws.com:443\r\nProxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")
+        assert parse_info.host == "dev.finditnm.com"
+        assert parse_info.port == 80
+
     def test_http_proxy_with_port(self):
         parse_info = parse_proxy_info("""GET http://dev.finditnm.com:8080/ HTTP/1.1\r\nHost: dev.cbd-aws.com:8081\r\nProxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")
         assert parse_info.host == "dev.finditnm.com"
