@@ -123,10 +123,12 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
                 raise ValueError(f"Parse proxy info failed: {content}") from e
             if self._proxy_username and self._proxy_password:
                 if self._proxy_username != proxy_info.username or self._proxy_password != proxy_info.password:
-                    pstderr(f"[HTTP Proxy] Username or password error: {proxy_info.username} {proxy_info.password}")
-                    ctx.write(b'HTTP/1.1 407 Proxy Authentication Required\r\n\r\n')
-                    masked_password = '*' * len(proxy_info.password) if proxy_info.password else ''
-                    raise ValueError(f"Username or password error: {proxy_info.username}/{masked_password}")
+                    ctx.write(b'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="simple-proxy"\r\n\r\n')
+                    if not proxy_info.username and not proxy_info.password:
+                        raise ValueError(f"Proxy Authentication Required: {proxy_info.host}:{proxy_info.port}")
+                    else:
+                        masked_password = '*' * len(proxy_info.password) if proxy_info.password else ''
+                        raise ValueError(f"Proxy Authentication Failed: {proxy_info.username}/{masked_password}")
 
             host, port = self._transform_host_port(proxy_info.host, proxy_info.port)
             get_local_peer_to_target_mapping()[peer] = f"{host}:{port}"

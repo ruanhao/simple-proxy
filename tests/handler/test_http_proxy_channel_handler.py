@@ -121,9 +121,9 @@ Cache-Control: no-cache\r\n\r\n"""
                 password="wrongpass"
             )
         )
-        with pytest.raises(ValueError, match="Username or password error"):
+        with pytest.raises(ValueError, match="Proxy Authentication Failed"):
             handler.channel_read(ctx_mocker, b'test\r\n\r\n')
-        ctx_mocker.write.assert_called_once_with(b'HTTP/1.1 407 Proxy Authentication Required\r\n\r\n')
+        ctx_mocker.write.assert_called_once_with(b'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="simple-proxy"\r\n\r\n')
 
     def test_http_proxy(self, mocker, ctx_mocker):
         handler = HttpProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
