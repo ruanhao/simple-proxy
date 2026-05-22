@@ -170,8 +170,10 @@ class TestChannelRead:
 
     def test_without_providing_credential(self, ctx_mocker):
         handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
-        with pytest.raises(ValueError, match="USERNAME/PASSWORD authentication required but not set by client"):
-            handler.channel_read(ctx_mocker, b'\x05\x01\x00')
+        # with pytest.raises(ValueError, match="USERNAME/PASSWORD authentication required but not set by client"):
+        #     handler.channel_read(ctx_mocker, b'\x05\x01\x00')
+        handler.channel_read(ctx_mocker, b'\x05\x01\x00')
+        ctx_mocker.write.assert_called_with(b'\x05\x02')
 
     def test_unsupported_auth_method(self, ctx_mocker):
         handler = Socks5ProxyChannelHandler(EventLoopGroup())

@@ -107,17 +107,19 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
                 methods = self._buffer[2:2 + nmethods]
                 self._buffer = self._buffer[2 + nmethods:]
                 # Send METHOD SELECTION MESSAGE
-                if self._proxy_username and self._proxy_password and 0x02 not in methods:
-                    raise ValueError("[SOCKS5 Proxy|Handshake] USERNAME/PASSWORD authentication required but not set by client")
-                if 0x02 in methods:
+                if self._proxy_username and self._proxy_password:
+                    # Server requires authentication - always respond 0x02
                     ctx.write(bytes([0x05, 0x02]))  # VER, METHOD (USERNAME/PASSWORD)
                     self._socks5_state = Socks5State.AUTHENTICATION
-
-                elif 0x00 in methods:
-                    ctx.write(bytes([0x05, 0x00]))  # VER, METHOD (NO AUTHENTICATION)
-                    self._socks5_state = Socks5State.REQUEST
                 else:
-                    raise ValueError(f"[SOCKS5 Proxy|Handshake] No acceptable authentication methods: {methods}")
+                    if 0x00 in methods:
+                        ctx.write(bytes([0x05, 0x00]))
+                        self._socks5_state = Socks5State.REQUEST
+                    elif 0x02 in methods:
+                        ctx.write(bytes([0x05, 0x02]))
+                        self._socks5_state = Socks5State.AUTHENTICATION
+                    else:
+                        raise ValueError(f"[SOCKS5 Proxy|Handshake] No acceptable authentication methods: {methods}")
                 if not self._buffer:
                     return
             elif self._socks5_state == Socks5State.REQUEST:
