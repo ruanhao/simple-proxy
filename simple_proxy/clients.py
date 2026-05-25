@@ -149,9 +149,10 @@ def _print_http_proxy_info():
     mapping = get_local_peer_to_target_mapping()
     if not mapping:
         return
+    items = list(mapping.copy().items())
     pstderr("HTTP Proxy Mappings".center(100, '-'))
     count = 1
-    for peer, target in mapping.items():
+    for peer, target in items:
         pstderr(f"[{count:3}] | {peer:21} --> {target}")
         count += 1
 
@@ -161,9 +162,10 @@ def _print_socks5_proxy_info():
     mapping = get_local_peer_to_target_mapping()
     if not mapping:
         return
+    items = list(mapping.copy().items())
     pstderr("SOCKS5 Proxy Mappings".center(100, '-'))
     count = 1
-    for peer, target in mapping.items():
+    for peer, target in items:
         pstderr(f"[{count:3}] | {peer:21} --> {target}")
         count += 1
 

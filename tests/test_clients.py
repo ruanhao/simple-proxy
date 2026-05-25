@@ -26,6 +26,35 @@ def test_print_proxy_info():
     _print_http_proxy_info()
 
 
+def test_print_proxy_info_uses_mapping_snapshot(monkeypatch):
+    class MappingThatFailsOnLiveIteration(dict):
+        def copy(self):
+            return dict(self)
+
+        def items(self):
+            raise RuntimeError("dictionary changed size during iteration")
+
+    http_mapping = MappingThatFailsOnLiveIteration({"a": "b"})
+    socks5_mapping = MappingThatFailsOnLiveIteration({"c": "d"})
+
+    from simple_proxy.handler import http_proxy_channel_handler
+    from simple_proxy.handler import socks5_proxy_channel_handler
+
+    monkeypatch.setattr(
+        http_proxy_channel_handler,
+        "get_local_peer_to_target_mapping",
+        lambda: http_mapping,
+    )
+    monkeypatch.setattr(
+        socks5_proxy_channel_handler,
+        "get_local_peer_to_target_mapping",
+        lambda: socks5_mapping,
+    )
+
+    _print_http_proxy_info()
+    _print_socks5_proxy_info()
+
+
 def test_get_client_or_none():
     client = TcpProxyClient()
     raddr = ('127.0.0.1', int(time.time()))
