@@ -40,7 +40,7 @@ def test_run_proxy_case_tcp_proxy(mocker):
         white_list="1.2.3.4,5.6.7.8",
     )
     kwargs = ServerBoostrapMocker.call_args[1]
-    assert kwargs['parant_group'].num == 1
+    assert kwargs['parent_group'].num == 1
     assert kwargs['child_group'].num == 2
     assert kwargs['certfile'] is None
     assert kwargs['keyfile'] is None
@@ -89,7 +89,7 @@ def test_run_proxy_case_http_proxy(mocker):
         proxy_password="juniper",
     )
     kwargs = ServerBoostrapMocker.call_args[1]
-    assert kwargs['parant_group'].num == 1
+    assert kwargs['parent_group'].num == 1
     assert kwargs['child_group'].num == 4
     assert 'certfile' not in kwargs
     assert 'keyfile' not in kwargs
@@ -129,7 +129,7 @@ def test_run_proxy_case_socks5_proxy(mocker):
         proxy_password="juniper",
     )
     kwargs = ServerBoostrapMocker.call_args[1]
-    assert kwargs['parant_group'].num == 1
+    assert kwargs['parent_group'].num == 1
     assert kwargs['child_group'].num == 4
     assert 'certfile' not in kwargs
     assert 'keyfile' not in kwargs
@@ -167,7 +167,7 @@ def test_run_proxy_case_shell_proxy(mocker):
         shell_proxy=True,
     )
     kwargs = ServerBoostrapMocker.call_args[1]
-    assert kwargs['parant_group'].num == 1
+    assert kwargs['parent_group'].num == 1
     assert kwargs['child_group'].num == 4
     assert not kwargs['certfile']
     assert not kwargs['keyfile']
@@ -199,7 +199,7 @@ def test_run_proxy_case_echo_server(mocker):
         proxy_workers=8,
     )
     kwargs = ServerBoostrapMocker.call_args[1]
-    assert kwargs['parant_group'].num == 1
+    assert kwargs['parent_group'].num == 1
     assert kwargs['child_group'].num == 4
     assert kwargs['certfile']
     assert kwargs['keyfile']

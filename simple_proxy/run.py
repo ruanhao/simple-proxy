@@ -109,7 +109,7 @@ def run_proxy(
     client_eventloop_group = EventLoopGroup(proxy_workers, 'Client')
     if http_proxy:
         sb = ServerBootstrap(
-            parant_group=EventLoopGroup(1, 'Boss'),
+            parent_group=EventLoopGroup(1, 'Boss'),
             child_group=EventLoopGroup(workers, 'Worker'),
             child_handler_initializer=lambda: HttpProxyChannelHandler(
                 client_eventloop_group,
@@ -127,7 +127,7 @@ def run_proxy(
                 pstderr(f"  {h0}:{p0} -> {h}:{p}")
     elif socks5_proxy:
         sb = ServerBootstrap(
-            parant_group=EventLoopGroup(1, 'Boss'),
+            parent_group=EventLoopGroup(1, 'Boss'),
             child_group=EventLoopGroup(workers, 'Worker'),
             child_handler_initializer=lambda: Socks5ProxyChannelHandler(
                 client_eventloop_group,
@@ -145,7 +145,7 @@ def run_proxy(
                 pstderr(f"  {h0}:{p0} -> {h}:{p}")
     elif shell_proxy:
         sb = ServerBootstrap(
-            parant_group=EventLoopGroup(1, 'Boss'),
+            parent_group=EventLoopGroup(1, 'Boss'),
             child_group=EventLoopGroup(workers, 'Worker'),
             child_handler_initializer=ShellChannelHandler,
             certfile=cf,
@@ -154,7 +154,7 @@ def run_proxy(
         pstderr(f"Shell proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} ...")
     elif as_echo_server:
         sb = ServerBootstrap(
-            parant_group=EventLoopGroup(1, 'Boss'),
+            parent_group=EventLoopGroup(1, 'Boss'),
             child_group=EventLoopGroup(workers, 'Worker'),
             child_handler_initializer=lambda: EchoChannelHandler(
                 client_eventloop_group,
@@ -166,7 +166,7 @@ def run_proxy(
         pstderr(f"Echo server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} ...")
     else:
         sb = ServerBootstrap(
-            parant_group=EventLoopGroup(1, 'Boss'),
+            parent_group=EventLoopGroup(1, 'Boss'),
             child_group=EventLoopGroup(workers, 'Worker'),
             child_handler_initializer=lambda: ProxyChannelHandler(
                 remote_server, remote_port,

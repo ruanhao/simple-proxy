@@ -161,3 +161,4 @@ cython_debug/
 
 *.~undo-tree~
 report.html
+AGENTS.md
