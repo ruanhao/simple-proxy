@@ -149,9 +149,21 @@ class TestHandleData:
         assert handle_data(buffer, False, src, dst, False, True) == buffer
 
 
-def test_tcp_proxy_client():
+def test_tcp_proxy_client(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr('simple_proxy.clients.time.perf_counter', lambda: now[0])
+    TcpProxyClient.global_rx = 0
+    TcpProxyClient.global_tx = 0
+    TcpProxyClient.max_rx = 0
+    TcpProxyClient.max_tx = 0
+
     c1 = TcpProxyClient()
     c2 = TcpProxyClient()
+    for client in (c1, c2):
+        client.last_read_time = now[0]
+        client.last_write_time = now[0]
+        client.born_time = now[0]
+
     c1.read(100)
     c1.write(101)
     assert TcpProxyClient.global_rx == 100
@@ -167,7 +179,7 @@ def test_tcp_proxy_client():
     assert c1.pretty_rx_total()
     assert c1.pretty_tx_total()
 
-    time.sleep(1.1)
+    now[0] += 1.1
     c1.read(1100)
     c1.write(1200)
     assert c1.rbps >= 900
@@ -180,5 +192,9 @@ def test_tcp_proxy_client():
     assert c1.cumulative_write_bytes == 0
 
     c1.check()
-    time.sleep(3.1)
+    assert c1.rbps > 0
+    assert c1.wbps > 0
+    now[0] += 3.1
     c1.check()
+    assert c1.rbps == 0
+    assert c1.wbps == 0

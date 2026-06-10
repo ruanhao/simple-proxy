@@ -54,6 +54,8 @@ def pretty_duration(seconds: float) -> str:
         return '0S'
     parts = []
     milliseconds = int(seconds * 1000)
+    if milliseconds == 0:
+        return '0S'
     for unit, div in _TIME_DURATION_UNITS:
         amount, milliseconds = divmod(int(milliseconds), div)
         if amount > 0:

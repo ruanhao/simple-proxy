@@ -40,6 +40,7 @@ def test_pretty_duration():
     assert pretty_duration(60) == '1M'
     assert pretty_duration(3661) == '1H,1M,1S'
     assert pretty_duration(0) == '0S'
+    assert pretty_duration(0.0005) == '0S'
     assert pretty_duration(0.5) == '500MS'
     assert pretty_duration(90061.5) == '1D,1H,1M,1S,500MS'
 
