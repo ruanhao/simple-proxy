@@ -1,6 +1,29 @@
-from simple_proxy.run import run_proxy
+import http.server
+import threading
+import urllib.request
+
+from simple_proxy.run import MyHttpHandler, run_proxy
 import pytest
 from simple_proxy.handler.shell_channel_handler import ShellChannelHandler
+
+
+def test_my_http_handler_get(mocker, capsys):
+    mocker.patch('simple_proxy.run.random_sentence', return_value='fixed response\n')
+    server = http.server.HTTPServer(('127.0.0.1', 0), MyHttpHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f'http://127.0.0.1:{server.server_port}/anything'
+        with urllib.request.urlopen(url, timeout=3) as response:
+            assert response.status == 200
+            assert response.headers['Content-type'] == 'text/plain'
+            assert response.read() == b'fixed response\n'
+    finally:
+        server.shutdown()
+        thread.join(timeout=3)
+        server.server_close()
+
+    assert capsys.readouterr().err == ''
 
 
 def test_run_proxy_case_tls_mode_with_both_disguise_ip_and_server():
