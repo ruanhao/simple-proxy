@@ -57,5 +57,8 @@ def test_check_ip_patterns():
 
 def test_is_ip_address():
     assert is_ip_address("1.2.3.4")
+    assert is_ip_address("::1")
+    assert is_ip_address("2001:db8::1")
     assert not is_ip_address("1.2.3")
+    assert not is_ip_address("999.1.1.1")
     assert not is_ip_address("www.google.com")

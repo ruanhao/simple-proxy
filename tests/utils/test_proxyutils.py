@@ -79,6 +79,26 @@ Proxy-Connection: Keep-Alive\r\n\r\n""")
         assert parse_info.username == "qiangwa3"
         assert parse_info.password == "lallaa"
 
+    def test_connect_with_ipv6(self):
+        proxy_info = parse_proxy_info("""CONNECT [2001:db8::1]:443 HTTP/1.1\r\n
+Host: [2001:db8::1]:443\r\n
+User-Agent: curl/8.7.1\r\n
+Proxy-Connection: Keep-Alive\r\n\r\n""")
+        assert proxy_info.host == "2001:db8::1"
+        assert proxy_info.port == 443
+
+    def test_http_proxy_with_ipv6(self):
+        parse_info = parse_proxy_info("""GET http://[2001:db8::2]:8080/api/auth HTTP/1.1\r\nHost: [2001:db8::2]:8080\r\nProxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")
+        assert parse_info.host == "2001:db8::2"
+        assert parse_info.port == 8080
+        assert parse_info.username == "qiangwa3"
+        assert parse_info.password == "lallaa"
+
+    def test_http_proxy_with_ipv6_default_port(self):
+        parse_info = parse_proxy_info("""GET http://[::1]/api/auth HTTP/1.1\r\nHost: [::1]\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")
+        assert parse_info.host == "::1"
+        assert parse_info.port == 80
+
     def test_connect_not_match(self):
         with pytest.raises(ValueError, match="Invalid CONNECT request format"):
             parse_proxy_info("""CONNECT dev.finditnm.com:443 KTTP/1.1\r\n
@@ -90,6 +110,10 @@ Proxy-Connection: Keep-Alive\r\n\r\n""")
     def test_invalid_host_header(self):
         with pytest.raises(ValueError, match="Invalid HTTP request format"):
             parse_proxy_info("""GET http://dev.finditnm.com:https/ HTTP/1.1\r\nHost: dev.finditnm.com:8080\r\nProxy-Authorization: Basic cWlhbmd3YTM6bGFsbGFh\r\nUser-Agent: curl/8.7.1\r\nAccept: */*\r\nProxy-Connection: Keep-Alive\r\n\r\n""")
+
+    def test_unbracketed_ipv6_connect_not_match(self):
+        with pytest.raises(ValueError, match="Invalid CONNECT request format"):
+            parse_proxy_info("""CONNECT 2001:db8::1:443 HTTP/1.1\r\nHost: [2001:db8::1]:443\r\n\r\n""")
 
 
 class TestTrimProxyInfo:
@@ -113,6 +137,15 @@ Cache-Control: no-cache\r\n\r\n"""
         trimmed = trim_proxy_info(raw)
         trimmed_str = trimmed.decode('utf-8')
         assert "GET /api/auth HTTP/1.1" in trimmed_str
+        assert "Proxy-Connection" not in trimmed_str
+
+        raw = b"""GET http://[2001:db8::1]:8080/api/auth?x=1 HTTP/1.1\r
+Host: [2001:db8::1]:8080\r
+Proxy-Connection: keep-alive\r
+Cache-Control: no-cache\r\n\r\n"""
+        trimmed = trim_proxy_info(raw)
+        trimmed_str = trimmed.decode('utf-8')
+        assert "GET /api/auth?x=1 HTTP/1.1" in trimmed_str
         assert "Proxy-Connection" not in trimmed_str
 
     def test_authentication(self):

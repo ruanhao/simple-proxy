@@ -1,13 +1,27 @@
 import socket
 import platform
 
+
+def format_host_port(host: str, port: int) -> str:
+    if isinstance(host, str) and ':' in host:
+        return f"[{host}]:{port}"
+    return f"{host}:{port}"
+
+
+def format_sockaddr(sockaddr) -> str:
+    if len(sockaddr) < 2:
+        return '?'
+    host, port = sockaddr[:2]
+    return format_host_port(host, port)
+
+
 def _get_address_str(sock: socket.socket, peer: bool = False) -> str:
     if not sock:
         return '?'
     try:
         addr_tuple = sock.getpeername() if peer else sock.getsockname()
-        return ':'.join(map(str, addr_tuple[:2]))
-    except OSError:
+        return format_sockaddr(addr_tuple)
+    except Exception:
         return '!'
 
 

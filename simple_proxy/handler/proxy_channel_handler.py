@@ -101,7 +101,7 @@ class ProxyChannelHandler(LoggingChannelHandler):
         super().channel_active(ctx)
         local_socket = ctx.channel().socket()
         set_keepalive(local_socket)
-        self.raddr = local_socket.getpeername()
+        self.raddr = local_socket.getpeername()[:2]
         get_client_or_create(self.raddr).local_socket = local_socket
         pstderr(f"Connection opened: {ctx.channel()}")
         self._create_client(ctx, None)

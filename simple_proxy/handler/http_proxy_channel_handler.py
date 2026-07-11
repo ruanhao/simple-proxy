@@ -4,7 +4,7 @@ from py_netty import Bootstrap
 from py_netty.handler import LoggingChannelHandler
 from ..clients import handle_data, get_client_or_create, pop_client
 from ..utils.logutils import pstderr
-from ..utils.netutils import set_keepalive
+from ..utils.netutils import format_host_port, format_sockaddr, set_keepalive
 from ..utils.proxyutils import parse_proxy_info, trim_proxy_info
 # from collections import OrderedDict
 
@@ -81,7 +81,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
     def channel_active(self, ctx):
         local_socket = ctx.channel().socket()
         set_keepalive(local_socket)
-        self.raddr = local_socket.getpeername()
+        self.raddr = local_socket.getpeername()[:2]
         get_client_or_create(self.raddr).local_socket = local_socket
         if logger.isEnabledFor(logging.DEBUG):
             pstderr(f"[HTTP PROXY] Connection opened   : {ctx.channel()}")
@@ -96,10 +96,12 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
     @staticmethod
     def _print_record(channel_id: str, https: bool, peer: str, host0: str, port0: int, host: str, port: int):
         proto = 'HTTPS' if https else 'HTTP '
+        target0 = format_host_port(host0, port0)
+        target = format_host_port(host, port)
         if host0 == host and port0 == port:
-            pstderr(f"[HTTP Proxy] Connection requests : {proto} | {channel_id} | {peer} | {host0}:{port0}")
+            pstderr(f"[HTTP Proxy] Connection requests : {proto} | {channel_id} | {peer} | {target0}")
         else:
-            pstderr(f"[HTTP Proxy] Connection requests : {proto} | {channel_id} | {peer} | {host0}:{port0} > {host}:{port}")
+            pstderr(f"[HTTP Proxy] Connection requests : {proto} | {channel_id} | {peer} | {target0} > {target}")
 
     def channel_read(self, ctx, bytebuf):  # noqa
         if self._negotiated:
@@ -112,8 +114,7 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
         if b'\r\n\r\n' in self._buffer:
             self._negotiated = True
             content = self._buffer.decode('ascii', errors='using_dot')
-            peer_name, peer_port = ctx.channel().channelinfo().peername
-            peer = f"{peer_name}:{peer_port}"
+            peer = format_sockaddr(ctx.channel().channelinfo().peername)
             channel_id = ctx.channel().id()
             try:
                 proxy_info = parse_proxy_info(content)
@@ -125,13 +126,13 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
                 if self._proxy_username != proxy_info.username or self._proxy_password != proxy_info.password:
                     ctx.write(b'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="simple-proxy"\r\n\r\n')
                     if not proxy_info.username and not proxy_info.password:
-                        raise ValueError(f"Proxy Authentication Required: {proxy_info.host}:{proxy_info.port}")
+                        raise ValueError(f"Proxy Authentication Required: {format_host_port(proxy_info.host, proxy_info.port)}")
                     else:
                         masked_password = '*' * len(proxy_info.password) if proxy_info.password else ''
                         raise ValueError(f"Proxy Authentication Failed: {proxy_info.username}/{masked_password}")
 
             host, port = self._transform_host_port(proxy_info.host, proxy_info.port)
-            get_local_peer_to_target_mapping()[peer] = f"{host}:{port}"
+            get_local_peer_to_target_mapping()[peer] = format_host_port(host, port)
             get_client_or_create(self.raddr).proxy_socket = self._client_channel(ctx, host, int(port)).socket()
             if 'CONNECT' in content:  # https proxy
                 self._print_record(channel_id, True, peer, proxy_info.host, proxy_info.port, host, port)
@@ -156,6 +157,5 @@ class HttpProxyChannelHandler(LoggingChannelHandler):
                     pstderr(f"[HTTP Proxy] Connection closed   : {ctx.channel()}")
         if self._client:
             self._client.close()
-        peer_name, peer_port = ctx.channel().channelinfo().peername
-        peer = f"{peer_name}:{peer_port}"
+        peer = format_sockaddr(ctx.channel().channelinfo().peername)
         get_local_peer_to_target_mapping().pop(peer, None)

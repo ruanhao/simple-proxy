@@ -99,8 +99,8 @@ def handle_data(
         src: NioSocketChannel, dst: NioSocketChannel,
         print_content: bool, to_file: bool
 ) -> bytes:
-    src_ip, src_port = src.channelinfo().peername
-    dst_ip, dst_port = dst.channelinfo().peername
+    src_ip, src_port = src.channelinfo().peername[:2]
+    dst_ip, dst_port = dst.channelinfo().peername[:2]
 
     raddr = (src_ip, src_port) if direction else (dst_ip, dst_port)
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simple_proxy"
-version = "1.0.0"
+version = "1.0.1"
 description = "A simple network proxy tool"
 readme = "README.md"
 requires-python = ">=3.10, <4"
@@ -17,7 +17,7 @@ keywords = ["network", "tcp", "non-blocking", "proxy"]
 
 dependencies = [
     "click-option-group",
-    "py-netty>=1.1.0",
+    "py-netty>=1.1.2",
     "cryptography>=42.0.0",
     "attrs>=22.1.0",
 ]

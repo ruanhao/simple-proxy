@@ -4,6 +4,7 @@ from simple_proxy.handler.socks5_proxy_channel_handler import (
 from py_netty import EventLoopGroup
 from simple_proxy.clients import get_clients
 import pytest
+import socket
 # from unittest.mock import call
 
 raddr = ('127.0.0.1', 8080)
@@ -100,12 +101,20 @@ class TestChannelRead:
         with pytest.raises(ValueError, match=r"Unsupported SOCKS5 request: VER=5, CMD=2"):
             handler.channel_read(ctx_mocker, b'\x05\x02\x00\x01')  # Wrong cmd
 
-    def test_request_with_ipv6(self, ctx_mocker):
+    def test_request_with_ipv6(self, mocker, ctx_mocker):
+        mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
+        ctx_mocker.channel.return_value.channelinfo.return_value.peername = raddr
         handler = Socks5ProxyChannelHandler(EventLoopGroup())
         handler.channel_read(ctx_mocker, b'\x05\x01\x00')
         ##
-        with pytest.raises(ValueError, match=r"Unsupported address type: IPv6"):
-            handler.channel_read(ctx_mocker, b'\x05\x01\x00\x04')
+        assert not handler._negotiated
+        handler.channel_read(ctx_mocker, b'\x05\x01')
+        handler.channel_read(ctx_mocker, b'\x00\x04')
+        handler.channel_read(ctx_mocker, socket.inet_pton(socket.AF_INET6, "2001:db8::1"))
+        handler.channel_read(ctx_mocker, b'\x1f\x90')  # port 8080
+        ctx_mocker.write.assert_called_with(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')
+        assert handler._negotiated
+        assert get_local_peer_to_target_mapping()["127.0.0.1:8080"] == "[2001:db8::1]:8080"
 
     def test_request_with_ipv4(self, mocker, ctx_mocker):
         mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
@@ -269,7 +278,9 @@ class TestChannelRead:
         with pytest.raises(ValueError, match=r"Unsupported SOCKS5 request: VER=5, CMD=2"):
             handler.channel_read(ctx_mocker, b'\x05\x02\x00\x01')  # Wrong CMD
 
-    def test_authenticate_while_request_ipv6(self, ctx_mocker):
+    def test_authenticate_while_request_ipv6(self, mocker, ctx_mocker):
+        mocker.patch('simple_proxy.handler.socks5_proxy_channel_handler.Bootstrap')
+        ctx_mocker.channel.return_value.channelinfo.return_value.peername = raddr
         ##
         handler = Socks5ProxyChannelHandler(EventLoopGroup(), proxy_username="cisco", proxy_password="juniper")
         handler.channel_read(ctx_mocker, b'\x05\x01\x02')
@@ -282,9 +293,13 @@ class TestChannelRead:
         handler.channel_read(ctx_mocker, b'juniper')
         ctx_mocker.write.assert_called_with(b'\x01\x00')
 
-        with pytest.raises(ValueError, match=r"Unsupported address type: IPv6"):
-            handler.channel_read(ctx_mocker, b'\x05')
-            handler.channel_read(ctx_mocker, b'\x01\x00\x04')  # IPv6 address type
+        handler.channel_read(ctx_mocker, b'\x05')
+        handler.channel_read(ctx_mocker, b'\x01\x00\x04')  # IPv6 address type
+        handler.channel_read(ctx_mocker, socket.inet_pton(socket.AF_INET6, "2001:db8::2"))
+        handler.channel_read(ctx_mocker, b'\x1f\x91')  # port 8081
+        ctx_mocker.write.assert_called_with(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')
+        assert get_local_peer_to_target_mapping()["127.0.0.1:8080"] == "[2001:db8::2]:8081"
+        assert handler._negotiated
 
     def test_authenticate_while_request_unsupported_addr_type(self, ctx_mocker):
         ##

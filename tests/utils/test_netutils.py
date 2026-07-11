@@ -1,5 +1,7 @@
 from simple_proxy.utils import (
     getsockname, getpeername,
+    format_host_port,
+    format_sockaddr,
     free_port,
     set_keepalive,
 )
@@ -18,6 +20,9 @@ def test_getsockname(sock_mocker):
     sock_mocker.getsockname.return_value = ("1.2.3.4", 8080)
     assert "1.2.3.4:8080" == getsockname(sock_mocker)
 
+    sock_mocker.getsockname.return_value = ("::1", 8080, 0, 0)
+    assert "[::1]:8080" == getsockname(sock_mocker)
+
     sock_mocker.getsockname.side_effect = OSError()
     assert "!" == getsockname(sock_mocker)
 
@@ -29,8 +34,18 @@ def test_getpeername(sock_mocker):
     sock_mocker.getpeername.return_value = ("1.2.3.4", 8080)
     assert "1.2.3.4:8080" == getpeername(sock_mocker)
 
+    sock_mocker.getpeername.return_value = ("2001:db8::1", 8080, 0, 0)
+    assert "[2001:db8::1]:8080" == getpeername(sock_mocker)
+
     sock_mocker.getpeername.side_effect = OSError()
     assert "!" == getpeername(sock_mocker)
+
+
+def test_format_host_port():
+    assert format_host_port("example.com", 443) == "example.com:443"
+    assert format_host_port("127.0.0.1", 443) == "127.0.0.1:443"
+    assert format_host_port("::1", 443) == "[::1]:443"
+    assert format_sockaddr(("2001:db8::1", 8080, 0, 0)) == "[2001:db8::1]:8080"
 
 
 def test_free_port():

@@ -19,6 +19,7 @@ from .utils import (
     submit_daemon_thread,
     alpn_ssl_context_cb,
     random_sentence,
+    format_host_port,
 )
 from .utils.stringutils import is_ip_address
 
@@ -103,7 +104,7 @@ def run_proxy(
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(certfile=cf_mock, keyfile=kf_mock)
         httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
-        pstderr(f"Builtin disguise TLS server started listening(https://localhost:{disguise_tls_port}) ...")
+        pstderr(f"Builtin disguise TLS server started listening(https://{format_host_port('localhost', disguise_tls_port)}) ...")
         submit_daemon_thread(httpd.serve_forever)
 
     client_eventloop_group = EventLoopGroup(proxy_workers, 'Client')
@@ -120,11 +121,11 @@ def run_proxy(
                 proxy_password=proxy_password,
             ),
         )
-        pstderr(f"HTTP Proxy server started listening: {local_server}:{local_port} [console:{content}, file:{to_file}] ... ")
+        pstderr(f"HTTP Proxy server started listening: {format_host_port(local_server, local_port)} [console:{content}, file:{to_file}] ... ")
         if proxy_transform:
             pstderr("HTTP Proxy transforms:")
             for h0, p0, h, p in proxy_transform:
-                pstderr(f"  {h0}:{p0} -> {h}:{p}")
+                pstderr(f"  {format_host_port(h0, p0)} -> {format_host_port(h, p)}")
     elif socks5_proxy:
         sb = ServerBootstrap(
             parent_group=EventLoopGroup(1, 'Boss'),
@@ -138,11 +139,11 @@ def run_proxy(
                 proxy_password=proxy_password,
             ),
         )
-        pstderr(f"Socks5 Proxy server started listening: {local_server}:{local_port} [console:{content}, file:{to_file}] ... ")
+        pstderr(f"Socks5 Proxy server started listening: {format_host_port(local_server, local_port)} [console:{content}, file:{to_file}] ... ")
         if proxy_transform:
             pstderr("Proxy transforms:")
             for h0, p0, h, p in proxy_transform:
-                pstderr(f"  {h0}:{p0} -> {h}:{p}")
+                pstderr(f"  {format_host_port(h0, p0)} -> {format_host_port(h, p)}")
     elif shell_proxy:
         sb = ServerBootstrap(
             parent_group=EventLoopGroup(1, 'Boss'),
@@ -151,7 +152,7 @@ def run_proxy(
             certfile=cf,
             keyfile=kf,
         )
-        pstderr(f"Shell proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} ...")
+        pstderr(f"Shell proxy server started listening: {format_host_port(local_server, local_port)}{'(TLS)' if ss else ''} ...")
     elif as_echo_server:
         sb = ServerBootstrap(
             parent_group=EventLoopGroup(1, 'Boss'),
@@ -163,7 +164,7 @@ def run_proxy(
             certfile=cf,
             keyfile=kf,
         )
-        pstderr(f"Echo server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} ...")
+        pstderr(f"Echo server started listening: {format_host_port(local_server, local_port)}{'(TLS)' if ss else ''} ...")
     else:
         sb = ServerBootstrap(
             parent_group=EventLoopGroup(1, 'Boss'),
@@ -184,8 +185,8 @@ def run_proxy(
             keyfile=kf,
             ssl_context_cb=alpn_ssl_context_cb if alpn else None,
         )
-        disguise = f"https://{disguise_tls_ip}:{disguise_tls_port}" if disguise_tls_ip else 'n/a'
-        pstderr(f"Proxy server started listening: {local_server}:{local_port}{'(TLS)' if ss else ''} => {remote_server}:{remote_port}{'(TLS)' if tls else ''} ...")
+        disguise = f"https://{format_host_port(disguise_tls_ip, disguise_tls_port)}" if disguise_tls_ip else 'n/a'
+        pstderr(f"Proxy server started listening: {format_host_port(local_server, local_port)}{'(TLS)' if ss else ''} => {format_host_port(remote_server, remote_port)}{'(TLS)' if tls else ''} ...")
         pstderr(f"console:{content}, file:{to_file}, disguise:{disguise}, whitelist:{white_list0 or '*'}")
         if is_ip_address(remote_server) and tls and not server_name_indication:
             pstderr("[WARN] Direct IP address is used as remote TLS server, it's recommended to specify SNI using '--server-name-indication' option!")

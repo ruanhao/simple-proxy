@@ -80,7 +80,7 @@ class ShellChannelHandler(LoggingChannelHandler):
     def channel_active(self, ctx):
         super().channel_active(ctx)
         local_socket = ctx.channel().socket()
-        self.raddr = local_socket.getpeername()
+        self.raddr = local_socket.getpeername()[:2]
         get_client_or_create(self.raddr).local_socket = local_socket
 
         if os.name == 'nt':

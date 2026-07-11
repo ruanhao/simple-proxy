@@ -4,7 +4,7 @@ from py_netty import Bootstrap
 from py_netty.handler import LoggingChannelHandler
 from ..clients import handle_data, get_client_or_create, pop_client
 from ..utils.logutils import pstderr
-from ..utils.netutils import set_keepalive
+from ..utils.netutils import format_host_port, format_sockaddr, set_keepalive
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
     def channel_active(self, ctx):
         local_socket = ctx.channel().socket()
         set_keepalive(local_socket)
-        self.raddr = local_socket.getpeername()
+        self.raddr = local_socket.getpeername()[:2]
         get_client_or_create(self.raddr).local_socket = local_socket
         if logger.isEnabledFor(logging.DEBUG):
             pstderr(f"[SOCKS5 Proxy] Connection opened   : {ctx.channel()}")
@@ -82,10 +82,12 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
 
     @staticmethod
     def _print_record(channel_id: str, peer: str, host0: str, port0: int, host: str, port: int):
+        target0 = format_host_port(host0, port0)
+        target = format_host_port(host, port)
         if host0 == host and port0 == port:
-            pstderr(f"[SOCKS5 Proxy] Connection requests : {channel_id} | {peer} | {host0}:{port0}")
+            pstderr(f"[SOCKS5 Proxy] Connection requests : {channel_id} | {peer} | {target0}")
         else:
-            pstderr(f"[SOCKS5 Proxy] Connection requests : {channel_id} | {peer} | {host0}:{port0} > {host}:{port}")
+            pstderr(f"[SOCKS5 Proxy] Connection requests : {channel_id} | {peer} | {target0} > {target}")
 
 
     def channel_read(self, ctx, bytebuf):  # noqa
@@ -142,7 +144,10 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
                     dst_addr = self._buffer[5:5 + domain_length].decode('utf-8')
                     dst_port = int.from_bytes(self._buffer[5 + domain_length:5 + domain_length + 2], 'big')
                 elif addr_type == 0x04:  # IPv6
-                    raise ValueError("[SOCKS5 Proxy|Request] Unsupported address type: IPv6")
+                    if len(self._buffer) < 22:  # VER, CMD, RSV, ATYP, ADDR(16), PORT(2)
+                        return
+                    dst_addr = socket.inet_ntop(socket.AF_INET6, self._buffer[4:20])
+                    dst_port = int.from_bytes(self._buffer[20:22], 'big')
                 else:
                     raise ValueError(f"[SOCKS5 Proxy|Request] Unsupported address type: {addr_type}")
                 # Create connection to target
@@ -150,9 +155,8 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
                 get_client_or_create(self.raddr).proxy_socket = self._client_channel(ctx, host, int(port)).socket()
                 ctx.write(b'\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00')  # Success response
                 # Record the mapping
-                peer_name, peer_port = ctx.channel().channelinfo().peername
-                peer = f"{peer_name}:{peer_port}"
-                get_local_peer_to_target_mapping()[peer] = f"{host}:{port}"
+                peer = format_sockaddr(ctx.channel().channelinfo().peername)
+                get_local_peer_to_target_mapping()[peer] = format_host_port(host, port)
                 self._print_record(ctx.channel().id(), peer, dst_addr, dst_port, host, port)
                 self._buffer = b''
                 self._negotiated = True
@@ -192,6 +196,5 @@ class Socks5ProxyChannelHandler(LoggingChannelHandler):
                     pstderr(f"[SOCKS5 Proxy] Connection closed   : {ctx.channel()}")
         if self._client:
             self._client.close()
-        peer_name, peer_port = ctx.channel().channelinfo().peername
-        peer = f"{peer_name}:{peer_port}"
+        peer = format_sockaddr(ctx.channel().channelinfo().peername)
         get_local_peer_to_target_mapping().pop(peer, None)

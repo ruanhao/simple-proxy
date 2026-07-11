@@ -133,6 +133,16 @@ class TestHandleData:
         client_mocker.write.assert_called_once_with(len(buffer))
         assert not client_mocker.read.called
 
+    def test_client_rw_ipv6(self, mocker, src, dst):
+        src.channelinfo.return_value.peername = ('::1', 12345, 0, 0)
+        dst.channelinfo.return_value.peername = ('2001:db8::1', 54321, 0, 0)
+        buffer = b'123'
+
+        client_mocker = mocker.MagicMock()
+        get_clients()[('::1', 12345)] = client_mocker
+        assert handle_data(buffer, True, src, dst, False, False) == buffer
+        client_mocker.read.assert_called_once_with(len(buffer))
+
     def test_log_data(self, src, dst):
         src.channelinfo.return_value.peername = ('127.0.0.1', 12345)
         dst.channelinfo.return_value.peername = ('8.8.8.8', 54321)

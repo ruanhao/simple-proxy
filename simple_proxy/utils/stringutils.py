@@ -1,5 +1,6 @@
 import random
 import re
+import ipaddress
 from .logutils import _get_logger
 
 _TIME_DURATION_UNITS = (
@@ -70,5 +71,8 @@ def check_ip_patterns(patterns: list[str], s: str) -> bool:
     return False
 
 def is_ip_address(s: str) -> bool:
-    ip_pattern = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
-    return bool(ip_pattern.match(s))
+    try:
+        ipaddress.ip_address(s)
+        return True
+    except ValueError:
+        return False

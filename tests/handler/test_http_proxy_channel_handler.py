@@ -218,6 +218,30 @@ Proxy-Connection: Keep-Alive\r\n\r\n"""
         ctx_mocker.write.assert_called_once_with(b'HTTP/1.1 200 Connection Established\r\n\r\n')
         assert get_local_peer_to_target_mapping()['127.0.0.1:8080'] == "www.google.com:8443"
 
+    def test_https_proxy_with_ipv6_target(self, mocker, ctx_mocker):
+        handler = HttpProxyChannelHandler(EventLoopGroup())
+        ctx_mocker.channel.return_value.channelinfo.return_value.peername = ('::1', 8080, 0, 0)
+        ctx_mocker.channel.return_value.id.return_value.peername = "channel-1"
+        mocker.patch(
+            'simple_proxy.handler.http_proxy_channel_handler.parse_proxy_info',
+            return_value=ProxyInfo(
+                host="2001:db8::1",
+                port=443,
+            )
+        )
+        client_mocker = mocker.MagicMock()
+        client_mocker.channelinfo.return_value.peername = ('2001:db8::1', 443, 0, 0)
+        BoostrapMocker = mocker.patch(  # noqa
+            'simple_proxy.handler.http_proxy_channel_handler.Bootstrap'
+        )
+        BoostrapMocker.return_value.connect.return_value.sync.return_value.channel.return_value = client_mocker
+        bytebuf = b"""CONNECT [2001:db8::1]:443 HTTP/1.1\r\n
+Host: [2001:db8::1]:443\r\n
+Proxy-Connection: Keep-Alive\r\n\r\n"""
+        handler.channel_read(ctx_mocker, bytebuf)
+        BoostrapMocker.return_value.connect.assert_called_once_with("2001:db8::1", 443, True, use_socksocket=False)
+        assert get_local_peer_to_target_mapping()['[::1]:8080'] == "[2001:db8::1]:443"
+
     def test_not_enough_data(self):
         handler = HttpProxyChannelHandler(EventLoopGroup())
         handler.channel_read(None, b'\r\n')  # no exception

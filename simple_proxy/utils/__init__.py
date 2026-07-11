@@ -16,6 +16,8 @@ from .logutils import (
 from .netutils import (
     getpeername,
     getsockname,
+    format_host_port,
+    format_sockaddr,
     free_port,
     set_keepalive,
 )
@@ -37,6 +39,8 @@ __all__ = [
     'enable_stderr',
     'getpeername',
     'getsockname',
+    'format_host_port',
+    'format_sockaddr',
     'free_port',
     'set_keepalive',
     'from_cwd',

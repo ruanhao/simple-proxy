@@ -14,7 +14,7 @@ class EchoChannelHandler(ProxyChannelHandler):
     def channel_read(self, ctx, bytebuf):
         if not bytebuf:
             return
-        src_ip, src_port = ctx.channel().channelinfo().peername
+        src_ip, src_port = ctx.channel().channelinfo().peername[:2]
         raddr = (src_ip, src_port)
         client = get_client_or_none(raddr)
         if client:
