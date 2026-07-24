@@ -5,7 +5,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simple_proxy"
-version = "1.0.3"
+# 1.0.4+ support http stub
+version = "1.0.4"
 description = "A simple network proxy tool"
 readme = "README.md"
 requires-python = ">=3.10, <4"
