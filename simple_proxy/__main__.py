@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 @optgroup.option('--proxy-workers', type=int, default=1, help='Number of proxy threads', show_default=True)
 #
 @optgroup.group('Traffic dump configuration', help='Configuration for traffic dump')
-@optgroup.option('--tcp-flow', '-c', 'content', is_flag=True, help='Dump tcp flow on to console')
+@optgroup.option('--tcp-flow', '-c', 'content', is_flag=True, help='Dump traffic/request details to console')
 @optgroup.option('--save-tcp-flow', '-f', 'to_file', is_flag=True, help='Save tcp flow to file')
 #
 @optgroup.group('TLS certificate configuration', help='Configuration for TLS certificate')
@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 @optgroup.option('--echo-proxy', '-e', 'as_echo_server', is_flag=True, help='Run as Echo server')
 @optgroup.option('--shell-proxy', is_flag=True, help='Run as shell proxy server')
 @optgroup.option('--http-proxy', is_flag=True, help='Run as HTTP proxy server')
+@optgroup.option('--http-stub', is_flag=True, help='Run as HTTP stub server')
 @optgroup.option('--socks5-proxy', is_flag=True, help='Run as SOCKS5 proxy server')
 @optgroup.option('--proxy-username', help='Proxy username for HTTP/SOCKS5 proxy')
 @optgroup.option('--proxy-password', help='Proxy password for HTTP/SOCKS5 proxy')
@@ -66,6 +67,23 @@ logger = logging.getLogger(__name__)
 @optgroup.option('--internal-socks5-port', help='[Internal] SOCKS5 proxy port', default=0)
 @click.version_option(prog_name='Simple Proxy', version=__version__)
 def _cli(verbose, log_file: click.Path, **kwargs):
+    if kwargs.get('http_stub'):
+        conflicting_modes = [
+            option
+            for option, enabled in (
+                ('--echo-proxy', kwargs.get('as_echo_server')),
+                ('--shell-proxy', kwargs.get('shell_proxy')),
+                ('--http-proxy', kwargs.get('http_proxy')),
+                ('--socks5-proxy', kwargs.get('socks5_proxy')),
+            )
+            if enabled
+        ]
+        if conflicting_modes:
+            raise click.UsageError(
+                "'--http-stub' cannot be used with "
+                + ', '.join(f"'{option}'" for option in conflicting_modes)
+            )
+
     setup_logging(log_file, logging.INFO if verbose == 0 else logging.DEBUG)
     if verbose < 2:
         logger.setLevel(logging.WARNING)

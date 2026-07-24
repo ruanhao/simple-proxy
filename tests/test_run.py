@@ -4,6 +4,7 @@ import urllib.request
 
 from simple_proxy.run import MyHttpHandler, run_proxy
 import pytest
+from simple_proxy.handler.http_stub_channel_handler import HttpStubChannelHandler
 from simple_proxy.handler.shell_channel_handler import ShellChannelHandler
 
 
@@ -125,6 +126,34 @@ def test_run_proxy_case_http_proxy(mocker):
     assert http_proxy_channel_handler._transform == (('example.com', 80, 'transformed.com', 8080),)
     assert http_proxy_channel_handler._proxy_username == "cisco"
     assert http_proxy_channel_handler._proxy_password == "juniper"
+
+
+def test_run_proxy_case_http_stub(mocker):
+    ServerBoostrapMocker = mocker.patch('simple_proxy.run.ServerBootstrap')
+    run_proxy(
+        local_server='127.0.0.2', local_port=8081,
+        using_global=True,
+        content=True,
+        ss=True,
+        key_file="/tmp/key.pem", cert_file="/tmp/cert.pem",
+        workers=4,
+        http_stub=True,
+    )
+
+    kwargs = ServerBoostrapMocker.call_args.kwargs
+    assert kwargs['parent_group'].num == 1
+    assert kwargs['child_group'].num == 4
+    assert kwargs['certfile'] == "/tmp/cert.pem"
+    assert kwargs['keyfile'] == "/tmp/key.pem"
+    assert 'ssl_context_cb' not in kwargs
+
+    handler = kwargs['child_handler_initializer']()
+    assert isinstance(handler, HttpStubChannelHandler)
+    assert handler._content is True
+    assert ServerBoostrapMocker.return_value.bind.call_args.kwargs == {
+        'address': '0.0.0.0',
+        'port': 8081,
+    }
 
 
 def test_run_proxy_case_socks5_proxy(mocker):

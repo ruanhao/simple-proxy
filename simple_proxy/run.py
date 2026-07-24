@@ -8,6 +8,7 @@ from py_netty import EventLoopGroup, ServerBootstrap
 from .clients import spawn_clients_monitor, stop_clients_monitor
 from .handler.echo_channel_handler import EchoChannelHandler
 from .handler.http_proxy_channel_handler import HttpProxyChannelHandler
+from .handler.http_stub_channel_handler import HttpStubChannelHandler
 from .handler.proxy_channel_handler import ProxyChannelHandler
 from .handler.shell_channel_handler import ShellChannelHandler
 from .handler.socks5_proxy_channel_handler import Socks5ProxyChannelHandler
@@ -59,6 +60,7 @@ def run_proxy(
         as_echo_server=False,
         internal_socks5_host: str | None = None,
         internal_socks5_port: int = 0,
+        http_stub=False,
 ):
     if internal_socks5_port and internal_socks5_host:
         pstderr("[Internal] Setting up internal SOCKS5 proxy for outgoing connection ...")
@@ -108,7 +110,22 @@ def run_proxy(
         submit_daemon_thread(httpd.serve_forever)
 
     client_eventloop_group = EventLoopGroup(proxy_workers, 'Client')
-    if http_proxy:
+    if http_stub:
+        sb = ServerBootstrap(
+            parent_group=EventLoopGroup(1, 'Boss'),
+            child_group=EventLoopGroup(workers, 'Worker'),
+            child_handler_initializer=lambda: HttpStubChannelHandler(
+                content=content,
+            ),
+            certfile=cf,
+            keyfile=kf,
+        )
+        pstderr(
+            f"HTTP Stub server started listening: "
+            f"{format_host_port(local_server, local_port)}"
+            f"{'(TLS)' if ss else ''} [request-details:{content}] ... "
+        )
+    elif http_proxy:
         sb = ServerBootstrap(
             parent_group=EventLoopGroup(1, 'Boss'),
             child_group=EventLoopGroup(workers, 'Worker'),

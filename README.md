@@ -53,7 +53,7 @@ Options:
     --proxy-workers INTEGER       Number of proxy threads  [default:
                                   1]
   Traffic dump configuration:     Configuration for traffic dump
-    -c, --tcp-flow                Dump tcp flow on to console
+    -c, --tcp-flow                Dump traffic/request details to console
     -f, --save-tcp-flow           Save tcp flow to file
   TLS certificate configuration: 
                                   Configuration for TLS certificate
@@ -83,6 +83,7 @@ Options:
     -e, --echo-proxy              Run as Echo server
     --shell-proxy                 Run as shell proxy server
     --http-proxy                  Run as HTTP proxy server
+    --http-stub                   Run as HTTP stub server
     --socks5-proxy                Run as SOCKS5 proxy server
     --proxy-username TEXT         Proxy username for HTTP/SOCKS5
                                   proxy
@@ -181,6 +182,19 @@ You can set global envs *http_proxy* or *https_proxy* after http proxy server st
 > simple-proxy --http-proxy --internal-socks5-host=localhost --internal-socks5-port=1080
 ```
 
+### HTTP Stub
+Run an HTTP/1.x server that accepts any request and always returns `200 OK`.
+Requests are summarized on the console; add `-c` to include headers and up to
+1 KiB of the request body.
+
+```commandline
+> simple-proxy --http-stub -p 8080
+
+> simple-proxy --http-stub -g -p 8080 -c
+
+> simple-proxy --http-stub -ss -p 8443
+```
+
 
 ### SOCKS5 Proxy
 You can set global envs *https_proxy* or *https_proxy* after socks5 proxy server startd.
@@ -219,5 +233,4 @@ For example, you can protect your Scurrying Squirrel against attack from Grim Fo
 ```
 
 ![joey](https://raw.githubusercontent.com/ruanhao/simple-proxy/master/img/joey.png)
-
 
