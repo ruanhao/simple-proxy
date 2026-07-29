@@ -103,7 +103,7 @@ class TestSetupShell:
             return_value=mocker.MagicMock()
         )
         submit_mock = mocker.patch('simple_proxy.handler.shell_channel_handler.submit_daemon_thread')
-        close_mock = mocker.patch('simple_proxy.handler.shell_channel_handler.os.close')
+        close_mock = mocker.patch('simple_proxy.handler.shell_channel_handler._close_fd')
 
         handler._setup_linux_shell(ctx_mocker)
 
@@ -193,7 +193,7 @@ class TestChannelLifecycle:
             'simple_proxy.handler.shell_channel_handler.pop_client',
             return_value=client_mocker
         )
-        os_close_mock = mocker.patch('simple_proxy.handler.shell_channel_handler.os.close')
+        os_close_mock = mocker.patch('simple_proxy.handler.shell_channel_handler._close_fd')
 
         handler.channel_inactive(ctx_mocker)
 

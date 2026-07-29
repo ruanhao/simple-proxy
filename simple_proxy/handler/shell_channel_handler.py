@@ -9,6 +9,9 @@ from ..utils.osutils import submit_daemon_thread
 
 
 logger = logging.getLogger(__name__)
+# Keep FD cleanup patchable without replacing os.close process-wide.
+_close_fd = os.close
+
 
 class ShellChannelHandler(LoggingChannelHandler):
 
@@ -73,7 +76,7 @@ class ShellChannelHandler(LoggingChannelHandler):
             start_new_session=True,
             env=my_env
         )
-        os.close(slave_fd)
+        _close_fd(slave_fd)
         self._shell_stdin_fd = master_fd
         submit_daemon_thread(self.handle_read_output, ctx, master_fd)
 
@@ -103,5 +106,5 @@ class ShellChannelHandler(LoggingChannelHandler):
         pstderr(f"{ctx.channel()} Connection closed, rx: {c.pretty_rx_total()}, tx: {c.pretty_tx_total()}, duration: {c.pretty_born_time().lower()}")
 
         self._process.kill()
-        os.close(self._shell_stdin_fd)
+        _close_fd(self._shell_stdin_fd)
         pstderr(f"{ctx.channel()} Shell terminated: {self._process.pid}")
