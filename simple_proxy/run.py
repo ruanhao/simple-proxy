@@ -6,6 +6,7 @@ import socks
 from py_netty import EventLoopGroup, ServerBootstrap
 
 from .clients import spawn_clients_monitor, stop_clients_monitor
+from .file_server import run_file_server
 from .handler.echo_channel_handler import EchoChannelHandler
 from .handler.http_proxy_channel_handler import HttpProxyChannelHandler
 from .handler.http_stub_channel_handler import HttpStubChannelHandler
@@ -61,12 +62,41 @@ def run_proxy(
         internal_socks5_host: str | None = None,
         internal_socks5_port: int = 0,
         http_stub=False,
+        file_server=False,
+        directory='.',
 ):
+    if file_server:
+        if tls:
+            pfatal("'--tls/-s' is not applicable to '--file-server'; use '-ss' for HTTPS")
+        if bool(key_file) != bool(cert_file):
+            pfatal("Both key and cert files are required")
+
+        if using_global:
+            local_server = '0.0.0.0'
+
+        kf = None
+        cf = None
+        if ss:
+            if key_file and cert_file:
+                kf = key_file
+                cf = cert_file
+            else:
+                kf, cf = create_temp_key_cert()
+
+        run_file_server(
+            local_server=local_server,
+            local_port=local_port,
+            directory=directory,
+            workers=workers,
+            certfile=cf,
+            keyfile=kf,
+        )
+        return
+
     if internal_socks5_port and internal_socks5_host:
         pstderr("[Internal] Setting up internal SOCKS5 proxy for outgoing connection ...")
         socks.set_default_proxy(socks.SOCKS5, internal_socks5_host, internal_socks5_port)
         HttpProxyChannelHandler.USE_SOCKSOCKET = True
-
 
     if tls and (disguise_tls_ip or run_disguise_tls_server):
         pfatal("'--tls/-s' is not applicable if disguise mode is used!")

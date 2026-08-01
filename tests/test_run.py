@@ -156,6 +156,55 @@ def test_run_proxy_case_http_stub(mocker):
     }
 
 
+def test_run_proxy_case_file_server(mocker, tmp_path):
+    run_file_server = mocker.patch('simple_proxy.run.run_file_server')
+
+    run_proxy(
+        local_server='127.0.0.2',
+        local_port=9000,
+        using_global=True,
+        workers=4,
+        file_server=True,
+        directory=str(tmp_path),
+    )
+
+    run_file_server.assert_called_once_with(
+        local_server='0.0.0.0',
+        local_port=9000,
+        directory=str(tmp_path),
+        workers=4,
+        certfile=None,
+        keyfile=None,
+    )
+
+
+def test_run_proxy_case_https_file_server(mocker, tmp_path):
+    run_file_server = mocker.patch('simple_proxy.run.run_file_server')
+    create_temp_key_cert = mocker.patch(
+        'simple_proxy.run.create_temp_key_cert',
+        return_value=('/tmp/generated-key.pem', '/tmp/generated-cert.pem'),
+    )
+
+    run_proxy(
+        file_server=True,
+        directory=str(tmp_path),
+        ss=True,
+    )
+
+    create_temp_key_cert.assert_called_once_with()
+    assert run_file_server.call_args.kwargs['certfile'] == '/tmp/generated-cert.pem'
+    assert run_file_server.call_args.kwargs['keyfile'] == '/tmp/generated-key.pem'
+
+
+def test_run_proxy_file_server_rejects_remote_tls(mocker):
+    run_file_server = mocker.patch('simple_proxy.run.run_file_server')
+
+    with pytest.raises(SystemExit):
+        run_proxy(file_server=True, tls=True)
+
+    run_file_server.assert_not_called()
+
+
 def test_run_proxy_case_socks5_proxy(mocker):
     ServerBoostrapMocker = mocker.patch('simple_proxy.run.ServerBootstrap')
     run_proxy(

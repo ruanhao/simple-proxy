@@ -78,6 +78,9 @@ Options:
                                   without specifying external one
     -wl, --white-list TEXT        IP White list for legal incoming
                                   TLS connections (comma separated)
+  File server configuration:      Configuration for file server mode
+    --file-server                 Run as file server
+    -d, --directory DIRECTORY     Directory to serve  [default: .]
   Proxy configuration:            Configuration for application
                                   proxies
     -e, --echo-proxy              Run as Echo server
@@ -196,6 +199,32 @@ Requests are summarized on the console; add `-c` to include headers and up to
 ```
 
 
+### File Server
+Share the current directory over HTTP. Files can be downloaded from the
+directory index, and `/upload` provides a browser upload page with progress.
+The server listens on localhost by default; add `-g` to expose it on all
+interfaces.
+
+```commandline
+> simple-proxy --file-server
+
+> simple-proxy --file-server -d /path/to/files -p 9000
+
+> curl -F "file=@./example.txt" http://localhost:8080/upload
+```
+
+Use `-ss` to enable HTTPS. Supply both a certificate and key, or omit both to
+use a temporary self-signed certificate:
+
+```commandline
+> simple-proxy --file-server -ss -p 8443
+
+> simple-proxy --file-server -ss -cf cert.pem -kf key.pem -p 8443
+
+> curl -k -F "file=@./example.txt" https://localhost:8443/upload
+```
+
+
 ### SOCKS5 Proxy
 You can set global envs *https_proxy* or *https_proxy* after socks5 proxy server startd.
 ```commandline
@@ -233,4 +262,3 @@ For example, you can protect your Scurrying Squirrel against attack from Grim Fo
 ```
 
 ![joey](https://raw.githubusercontent.com/ruanhao/simple-proxy/master/img/joey.png)
-

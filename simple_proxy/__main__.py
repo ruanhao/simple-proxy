@@ -50,6 +50,10 @@ logger = logging.getLogger(__name__)
 @optgroup.option('--run-disguise-tls-server', is_flag=True, help='Run builtin disguise TLS server without specifying external one')
 @optgroup.option('--white-list', '-wl', help='IP White list for legal incoming TLS connections (comma separated)')
 #
+@optgroup.group('File server configuration', help='Configuration for file server mode')
+@optgroup.option('--file-server', is_flag=True, help='Run as file server')
+@optgroup.option('--directory', '-d', default='.', show_default=True, help='Directory to serve', type=click.Path(exists=True, file_okay=False, readable=True))
+#
 @optgroup.group('Proxy configuration', help='Configuration for application proxies')
 @optgroup.option('--echo-proxy', '-e', 'as_echo_server', is_flag=True, help='Run as Echo server')
 @optgroup.option('--shell-proxy', is_flag=True, help='Run as shell proxy server')
@@ -67,6 +71,34 @@ logger = logging.getLogger(__name__)
 @optgroup.option('--internal-socks5-port', help='[Internal] SOCKS5 proxy port', default=0)
 @click.version_option(prog_name='Simple Proxy', version=__version__)
 def _cli(verbose, log_file: click.Path, **kwargs):
+    if kwargs.get('file_server'):
+        conflicting_modes = [
+            option
+            for option, enabled in (
+                ('--echo-proxy', kwargs.get('as_echo_server')),
+                ('--shell-proxy', kwargs.get('shell_proxy')),
+                ('--http-proxy', kwargs.get('http_proxy')),
+                ('--http-stub', kwargs.get('http_stub')),
+                ('--socks5-proxy', kwargs.get('socks5_proxy')),
+            )
+            if enabled
+        ]
+        if conflicting_modes:
+            raise click.UsageError(
+                "'--file-server' cannot be used with "
+                + ', '.join(f"'{option}'" for option in conflicting_modes)
+            )
+        if kwargs.get('tls'):
+            raise click.UsageError(
+                "'--tls/-s' is not applicable to '--file-server'; use '-ss' for HTTPS"
+            )
+        if bool(kwargs.get('key_file')) != bool(kwargs.get('cert_file')):
+            raise click.UsageError(
+                "'--key-file/-kf' and '--cert-file/-cf' must be provided together"
+            )
+        if kwargs.get('workers', 1) < 1:
+            raise click.UsageError("'--workers' must be at least 1")
+
     if kwargs.get('http_stub'):
         conflicting_modes = [
             option
